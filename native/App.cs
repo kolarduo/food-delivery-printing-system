@@ -118,7 +118,6 @@ namespace FoodDeliveryPrintingSystem
             await rocket.EnsureCoreWebView2Async(environment);
             rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
             rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
-            rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
         }
 
@@ -309,37 +308,36 @@ namespace FoodDeliveryPrintingSystem
             payload["startDate"] = timestamp;
             payload["endDate"] = timestamp;
             string body = json.Serialize(payload);
-            string script = "(async()=>{try{const r=await fetch('" + OrderApiPart + "?foodDeliveryClient=1" +
+            string script = "(async()=>{try{const r=await fetch('" + OrderApiPart +
                 "',{method:'POST',credentials:'include',headers:{'accept':'application/json'," +
                 "'content-type':'application/json;charset=UTF-8','x-requested-with':'XMLHttpRequest'},body:" + json.Serialize(body) +
-                "});await r.text();return r.status;}catch(e){return -1;}})()";
+                "});const text=await r.text();return JSON.stringify({status:r.status,body:text});" +
+                "}catch(e){return JSON.stringify({status:-1,body:String(e)});}})()";
             string result = await rocket.CoreWebView2.ExecuteScriptAsync(script);
-            if (result == "-1")
+            string wrapperText = json.Deserialize<string>(result);
+            Dictionary<string, object> wrapper =
+                json.DeserializeObject(wrapperText) as Dictionary<string, object>;
+            int status = Convert.ToInt32(Get(wrapper, "status"));
+            if (status == 401 || status == 403)
             {
                 refreshing = false;
-                SendStatus("Rocket 订单接口请求失败，请重试。", "warn");
+                ShowRocketLogin();
+                SendStatus("Rocket 登录已过期，请重新登录。", "warn");
+                return;
             }
+            if (status < 200 || status >= 300)
+            {
+                refreshing = false;
+                SendStatus("Rocket 订单接口请求失败（HTTP " + status + "）。", "warn");
+                return;
+            }
+            ProcessOrderBody(ToText(Get(wrapper, "body")));
         }
 
-        async void RocketResponseReceived(object sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
+        void ProcessOrderBody(string body)
         {
-            if (e.Request.Uri.IndexOf(OrderApiPart, StringComparison.OrdinalIgnoreCase) < 0) return;
-            if (e.Request.Uri.IndexOf("foodDeliveryClient=1", StringComparison.OrdinalIgnoreCase) < 0) return;
             try
             {
-                CoreWebView2WebResourceResponseView response = e.Response;
-                if (response.StatusCode == 401 || response.StatusCode == 403)
-                {
-                    ShowRocketLogin();
-                    SendStatus("Rocket 登录已过期，请重新登录。", "warn");
-                    return;
-                }
-                if (response.StatusCode < 200 || response.StatusCode >= 300) return;
-                Stream stream = await response.GetContentAsync();
-                string body;
-                using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
-                    body = await reader.ReadToEndAsync();
-
                 Dictionary<string, object> root = json.DeserializeObject(body) as Dictionary<string, object>;
                 IEnumerable content = FindOrderContent(root);
                 int responseOrderCount = 0;
