@@ -309,10 +309,9 @@ namespace FoodDeliveryPrintingSystem
             payload["startDate"] = timestamp;
             payload["endDate"] = timestamp;
             string body = json.Serialize(payload);
-            string script = "(async()=>{try{const r=await fetch('" + OrderApiPart +
+            string script = "(async()=>{try{const r=await fetch('" + OrderApiPart + "?foodDeliveryClient=1" +
                 "',{method:'POST',credentials:'include',headers:{'accept':'application/json'," +
-                "'content-type':'application/json;charset=UTF-8','x-requested-with':'XMLHttpRequest'," +
-                "'x-food-delivery-client':'1'},body:" + json.Serialize(body) +
+                "'content-type':'application/json;charset=UTF-8','x-requested-with':'XMLHttpRequest'},body:" + json.Serialize(body) +
                 "});await r.text();return r.status;}catch(e){return -1;}})()";
             string result = await rocket.CoreWebView2.ExecuteScriptAsync(script);
             if (result == "-1")
@@ -325,7 +324,7 @@ namespace FoodDeliveryPrintingSystem
         async void RocketResponseReceived(object sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
         {
             if (e.Request.Uri.IndexOf(OrderApiPart, StringComparison.OrdinalIgnoreCase) < 0) return;
-            if (e.Request.Headers.GetHeader("x-food-delivery-client") != "1") return;
+            if (e.Request.Uri.IndexOf("foodDeliveryClient=1", StringComparison.OrdinalIgnoreCase) < 0) return;
             try
             {
                 CoreWebView2WebResourceResponseView response = e.Response;
