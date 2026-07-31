@@ -5,6 +5,7 @@ let selectedStores = new Set();
 let storeSelectionChanged = false;
 let currentDetailOrder = null;
 const DEFAULT_STORE_KEYWORD = '川崎';
+const ORDER_CACHE_KEY = 'rocketOrderCacheV1';
 
 function todayKey() {
   return dateKey(Date.now());
@@ -39,6 +40,51 @@ function storeInfo(order) {
     key: id ? `id:${id}` : name ? `name:${name}` : 'unknown',
     label: name || (id ? `店铺 ${id}` : '未知店铺'),
   };
+}
+
+function orderKey(order) {
+  return String(order.cacheKey || order.id || `${order.date || ''}:${order.items || ''}`).trim();
+}
+
+function sortOrders(values) {
+  return values.sort((left, right) => {
+    const leftTime = Number(left.date) || new Date(left.date).valueOf() || 0;
+    const rightTime = Number(right.date) || new Date(right.date).valueOf() || 0;
+    return rightTime - leftTime;
+  });
+}
+
+function loadCachedOrders() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(ORDER_CACHE_KEY) || '[]');
+    return Array.isArray(cached) ? cached : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedOrders(values) {
+  try {
+    localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(sortOrders(values).slice(0, 1000)));
+  } catch {
+    // If localStorage is full, the current screen can still show the merged data.
+  }
+}
+
+function mergeOrders(primary, secondary) {
+  const map = new Map();
+  for (const order of [...secondary, ...primary]) {
+    const key = orderKey(order);
+    if (key) map.set(key, order);
+  }
+  return sortOrders([...map.values()]);
+}
+
+function setOrders(nextOrders, shouldCache) {
+  orders = sortOrders(nextOrders);
+  if (shouldCache) saveCachedOrders(orders);
+  syncStores();
+  render();
 }
 
 function syncStores() {
@@ -129,7 +175,6 @@ function render() {
   });
 
   $('count').textContent = filtered.length;
-  $('total').textContent = orders.length;
   $('empty').style.display = filtered.length ? 'none' : 'block';
   $('empty').textContent = orders.length
     ? '没有符合当前日期和店铺条件的订单。'
@@ -198,8 +243,8 @@ function preparePrintLabel(order) {
 
   const meta = document.createElement('div');
   meta.className = 'labelMeta';
-  appendText(meta, 'span', '', order.id ? `#${order.id}` : '');
-  appendText(meta, 'span', '', localDate(order.date));
+  appendText(meta, 'div', 'labelMetaLine', order.id ? `注文番号 ${order.id}` : '注文番号');
+  appendText(meta, 'div', 'labelMetaLine', `注文時間 ${localDate(order.date)}`);
   label.appendChild(meta);
 
   for (const item of order.detailItems || []) {
@@ -229,7 +274,12 @@ function printCurrentOrder() {
 
 $('refresh').onclick = () => {
   $('status').textContent = '正在打开 Rocket Manager…';
-  window.chrome.webview.postMessage({ type: 'refresh', date: $('date').value });
+  const knownOrderKeys = loadCachedOrders().map(orderKey).filter(Boolean);
+  window.chrome.webview.postMessage({
+    type: 'refresh',
+    date: $('date').value,
+    knownOrderKeys,
+  });
 };
 $('date').onchange = render;
 $('storeToggle').onclick = () => {
@@ -254,10 +304,8 @@ $('print').onclick = printCurrentOrder;
 window.chrome.webview.addEventListener('message', (event) => {
   const message = event.data;
   if (message.type === 'orders') {
-    orders = message.orders || [];
-    syncStores();
+    setOrders(mergeOrders(message.orders || [], loadCachedOrders()), true);
     $('last').textContent = localDate(message.capturedAt);
-    render();
   }
   if (message.type === 'status') {
     $('status').textContent = message.message;
@@ -269,5 +317,5 @@ window.chrome.webview.addEventListener('message', (event) => {
 });
 
 $('date').value = todayKey();
+setOrders(loadCachedOrders(), false);
 setLoading(false);
-render();

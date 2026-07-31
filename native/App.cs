@@ -33,6 +33,7 @@ namespace FoodDeliveryPrintingSystem
         readonly Dictionary<string, Dictionary<string, object>> collectedOrders =
             new Dictionary<string, Dictionary<string, object>>();
         readonly HashSet<int> processedPages = new HashSet<int>();
+        readonly HashSet<string> knownOrderKeys = new HashSet<string>();
         readonly Timer finishTimer = new Timer();
         readonly Timer pageTimeoutTimer = new Timer();
         CoreWebView2Environment environment;
@@ -44,6 +45,7 @@ namespace FoodDeliveryPrintingSystem
         bool partialResult;
         bool directFetchActive;
         bool fastFetchTried;
+        bool reachedKnownOrder;
         string lastOrderQueryBody = "";
         string selectedDate = "";
         int scannedOrderCount;
@@ -57,6 +59,7 @@ namespace FoodDeliveryPrintingSystem
             public int LastPageNumber;
             public bool WasDuplicate;
             public bool HasOlderThanSelectedDate;
+            public bool HasKnownOrder;
         }
 
         public MainForm()
@@ -107,6 +110,17 @@ namespace FoodDeliveryPrintingSystem
                 if (message != null && Convert.ToString(message["type"]) == "refresh")
                 {
                     selectedDate = message.ContainsKey("date") ? Convert.ToString(message["date"]) : "";
+                    knownOrderKeys.Clear();
+                    IEnumerable known = message.ContainsKey("knownOrderKeys")
+                        ? message["knownOrderKeys"] as IEnumerable : null;
+                    if (known != null)
+                    {
+                        foreach (object value in known)
+                        {
+                            string key = ToText(value);
+                            if (!String.IsNullOrEmpty(key)) knownOrderKeys.Add(key);
+                        }
+                    }
                     await RefreshOrdersAsync();
                 }
             }
@@ -186,6 +200,7 @@ namespace FoodDeliveryPrintingSystem
             partialResult = false;
             directFetchActive = false;
             fastFetchTried = false;
+            reachedKnownOrder = false;
             lastOrderQueryBody = "";
             scannedOrderCount = 0;
             observedPageSize = 0;
@@ -298,12 +313,13 @@ namespace FoodDeliveryPrintingSystem
             bool reachedTotal = info.TotalElements > 0 &&
                 scannedOrderCount >= info.TotalElements;
             bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
+            bool reachedKnownOrderOnPage = info.HasKnownOrder;
             bool shortPage = observedPageSize > 0 &&
                 info.PageOrderCount < observedPageSize;
             bool reachedSafetyLimit = processedPages.Count >= MaximumPages;
             bool hasMore = info.PageOrderCount > 0 && !reachedReportedLastPage &&
                 !reachedTotal && !reachedSelectedDateFloor &&
-                !shortPage && !reachedSafetyLimit;
+                !reachedKnownOrderOnPage && !shortPage && !reachedSafetyLimit;
 
             if (!hasMore)
             {
@@ -315,6 +331,11 @@ namespace FoodDeliveryPrintingSystem
                 else if (reachedSelectedDateFloor)
                 {
                     SendStatus("已读到早于所选日期的订单，停止继续翻页。", "info");
+                }
+                else if (reachedKnownOrderOnPage)
+                {
+                    reachedKnownOrder = true;
+                    SendStatus("已读到本地已有订单，停止继续翻页。", "info");
                 }
                 FinishPaging();
                 return;
@@ -381,14 +402,22 @@ namespace FoodDeliveryPrintingSystem
                 {
                     Dictionary<string, object> order = value as Dictionary<string, object>;
                     if (order == null) continue;
+                    string key = ToText(Get(order, "uniqueOrderId"));
+                    if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
+                    string abbrId = ToText(Get(order, "abbrOrderId"));
+                    if (knownOrderKeys.Contains(key) || knownOrderKeys.Contains(abbrId))
+                    {
+                        info.HasKnownOrder = true;
+                        break;
+                    }
+
                     info.PageOrderCount++;
                     if (IsOlderThanSelectedDate(Get(order, "createdAt")))
                         info.HasOlderThanSelectedDate = true;
 
                     Dictionary<string, object> normalized = Normalize(order);
-                    string key = ToText(Get(order, "uniqueOrderId"));
-                    if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
                     if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
+                    normalized["cacheKey"] = key;
                     if (!String.IsNullOrEmpty(key)) collectedOrders[key] = normalized;
                 }
             }
@@ -448,11 +477,16 @@ namespace FoodDeliveryPrintingSystem
                     bool reachedTotal = info.TotalElements > 0 &&
                         scannedOrderCount >= info.TotalElements;
                     bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
+                    bool reachedKnownOrderOnPage = info.HasKnownOrder;
                     bool shortPage = observedPageSize > 0 &&
                         info.PageOrderCount < observedPageSize;
                     if (info.PageOrderCount == 0 || reachedReportedLastPage ||
-                        reachedTotal || reachedSelectedDateFloor || shortPage)
+                        reachedTotal || reachedSelectedDateFloor ||
+                        reachedKnownOrderOnPage || shortPage)
+                    {
+                        if (reachedKnownOrderOnPage) reachedKnownOrder = true;
                         return true;
+                    }
                 }
                 return true;
             }
@@ -584,9 +618,11 @@ namespace FoodDeliveryPrintingSystem
             Show();
             Activate();
             if (partialResult)
-                SendStatus("读取未完成，已保留 " + collectedOrders.Count + " 条订单，请重试。", "warn");
+                SendStatus("读取未完成，请重试。", "warn");
+            else if (reachedKnownOrder)
+                SendStatus("订单读取完成，已合并本地记录。", "ok");
             else
-                SendStatus("已读取默认范围全部 " + collectedOrders.Count + " 条订单", "ok");
+                SendStatus("订单读取完成。", "ok");
         }
 
         Dictionary<string, object> Normalize(Dictionary<string, object> order)
