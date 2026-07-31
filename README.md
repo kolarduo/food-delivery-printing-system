@@ -4,7 +4,7 @@
 
 ## 技术方案
 
-程序使用 Windows 原生 .NET Framework 和系统已安装的 Microsoft Edge WebView2。发布包不再捆绑 Electron、Chromium、Node.js 或 `node_modules`，因此体积从约 80MB 降至约 1–2MB。
+程序使用 Windows 原生 .NET Framework 和系统已安装的 Microsoft Edge WebView2。发布文件不再捆绑 Electron、Chromium、Node.js 或 `node_modules`。
 
 ## 当前功能
 
@@ -26,7 +26,7 @@
 .\build.ps1
 ```
 
-构建脚本会按需下载微软官方 WebView2 SDK，并在 `dist\food-delivery-printing-system-0.1.0` 生成轻量发布包。所有发布文件统一放在 `dist` 目录。
+构建脚本会按需下载微软官方 WebView2 SDK，并直接生成单文件 `dist\FoodDeliveryPrintingSystem-0.1.0.exe`。双击 EXE 即可运行，无需解压或管理其他文件。
 
 ## 数据安全
 
