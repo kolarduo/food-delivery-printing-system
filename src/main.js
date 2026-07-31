@@ -185,8 +185,10 @@ function waitForOrderCapture(sequence, timeoutMs) {
 }
 
 async function checkLogin() {
-  sendStatus('正在从 Rocket Manager 读取订单并检查登录状态…');
-  const win = await ensureRocketWindow(false);
+  sendStatus('已打开 Rocket Manager，正在读取 Kawasaki 店订单…');
+  const win = await ensureRocketWindow(true);
+  win.show();
+  win.focus();
   const before = captureSequence;
   win.loadURL(ORDERS_URL).catch(() => showLoginWindow());
   const captured = await waitForOrderCapture(before, 8000);
@@ -195,6 +197,9 @@ async function checkLogin() {
     return false;
   }
   sendStatus(`Rocket Manager 登录有效，已读取 ${currentOrders().length} 条订单`, 'ok');
+  if (win && !win.isDestroyed()) win.hide();
+  mainWindow?.show();
+  mainWindow?.focus();
   return true;
 }
 
@@ -212,7 +217,11 @@ function createMainWindow() {
 
 ipcMain.handle('get-orders', () => currentOrders());
 ipcMain.handle('refresh-orders', async () => {
-  return checkLogin();
+  checkLogin().catch((error) => {
+    sendStatus(`读取失败：${error.message}`, 'warn');
+    showLoginWindow();
+  });
+  return true;
 });
 ipcMain.handle('get-status', () => ({ lastCaptureAt, count: currentOrders().length }));
 
