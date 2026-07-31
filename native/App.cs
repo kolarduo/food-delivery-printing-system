@@ -38,6 +38,7 @@ namespace FoodDeliveryPrintingSystem
         WebView2 rocket;
         bool refreshing;
         bool navigatingToOrders;
+        bool directQueryStarted;
         string selectedDate = "";
 
         public MainForm()
@@ -117,10 +118,6 @@ namespace FoodDeliveryPrintingSystem
             await rocket.EnsureCoreWebView2Async(environment);
             rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
             rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
-            rocket.CoreWebView2.AddWebResourceRequestedFilter(
-                "*://store.rocketnow.co.jp/api/v1/merchant/web/multipleStore/order/queryByPage*",
-                CoreWebView2WebResourceContext.All);
-            rocket.CoreWebView2.WebResourceRequested += RocketResourceRequested;
             rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
         }
@@ -243,6 +240,7 @@ namespace FoodDeliveryPrintingSystem
 
             refreshing = true;
             collectedOrders.Clear();
+            directQueryStarted = false;
             finishTimer.Stop();
             SendStatus("正在打开 Rocket Manager…", "info");
             await EnsureRocketAsync();
@@ -286,12 +284,48 @@ namespace FoodDeliveryPrintingSystem
             {
                 navigatingToOrders = false;
                 SendStatus("已打开订单页面，正在等待订单数据…", "info");
+                if (refreshing && !directQueryStarted)
+                {
+                    directQueryStarted = true;
+                    QueryOrdersDirectlyAsync();
+                }
+            }
+        }
+
+        async Task QueryOrdersDirectlyAsync()
+        {
+            DateTime day;
+            if (!DateTime.TryParseExact(selectedDate, "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out day))
+            {
+                day = DateTime.Today;
+                selectedDate = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
+            object timestamp = DateFilterValue(0L, "startDate");
+            Dictionary<string, object> payload = new Dictionary<string, object>();
+            payload["pageNumber"] = 0;
+            payload["pageSize"] = 500;
+            payload["storeIds"] = new object[] { 71532 };
+            payload["startDate"] = timestamp;
+            payload["endDate"] = timestamp;
+            string body = json.Serialize(payload);
+            string script = "(async()=>{try{const r=await fetch('" + OrderApiPart +
+                "',{method:'POST',credentials:'include',headers:{'accept':'application/json'," +
+                "'content-type':'application/json;charset=UTF-8','x-requested-with':'XMLHttpRequest'," +
+                "'x-food-delivery-client':'1'},body:" + json.Serialize(body) +
+                "});await r.text();return r.status;}catch(e){return -1;}})()";
+            string result = await rocket.CoreWebView2.ExecuteScriptAsync(script);
+            if (result == "-1")
+            {
+                refreshing = false;
+                SendStatus("Rocket 订单接口请求失败，请重试。", "warn");
             }
         }
 
         async void RocketResponseReceived(object sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
         {
             if (e.Request.Uri.IndexOf(OrderApiPart, StringComparison.OrdinalIgnoreCase) < 0) return;
+            if (e.Request.Headers.GetHeader("x-food-delivery-client") != "1") return;
             try
             {
                 CoreWebView2WebResourceResponseView response = e.Response;
