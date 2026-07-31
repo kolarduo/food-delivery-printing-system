@@ -26,7 +26,7 @@
         <span>店铺</span>
         <div class="storeFilter">
           <button id="storeToggle" class="storeToggle" type="button" aria-haspopup="true" aria-expanded="false">
-            <span id="storeSummary">读取后可选</span>
+            <span id="storeSummary">川崎店</span>
             <span class="chevron" aria-hidden="true">▾</span>
           </button>
           <div id="storeMenu" class="storeMenu" hidden>
@@ -35,7 +35,7 @@
               <span>全店铺</span>
             </label>
             <div id="storeOptions"></div>
-            <p id="storeEmpty">读取订单后显示店铺</p>
+            <p id="storeEmpty">默认筛选川崎店，读取订单后可切换其它店铺</p>
           </div>
         </div>
       </div>
@@ -60,6 +60,13 @@
     <div class="dialogHead"><h2>商品详情</h2><button id="close">关闭</button></div>
     <div id="detailList"></div>
   </dialog>
+  <div id="loadingOverlay" class="loadingOverlay" hidden>
+    <div class="loadingBox" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <strong>正在查询订单</strong>
+      <span>Rocket Manager 已在后台读取，请稍等…</span>
+    </div>
+  </div>
   <script src="renderer.js"></script>
 </body>
 </html>

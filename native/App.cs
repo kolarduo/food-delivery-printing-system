@@ -42,8 +42,22 @@ namespace FoodDeliveryPrintingSystem
         bool navigatingToOrders;
         bool pagingFinished;
         bool partialResult;
+        bool directFetchActive;
+        bool fastFetchTried;
+        string lastOrderQueryBody = "";
+        string selectedDate = "";
         int scannedOrderCount;
         int observedPageSize;
+
+        sealed class PageInfo
+        {
+            public int PageNumber;
+            public int PageOrderCount;
+            public int TotalElements;
+            public int LastPageNumber;
+            public bool WasDuplicate;
+            public bool HasOlderThanSelectedDate;
+        }
 
         public MainForm()
         {
@@ -92,6 +106,7 @@ namespace FoodDeliveryPrintingSystem
                 Dictionary<string, object> message = json.DeserializeObject(e.WebMessageAsJson) as Dictionary<string, object>;
                 if (message != null && Convert.ToString(message["type"]) == "refresh")
                 {
+                    selectedDate = message.ContainsKey("date") ? Convert.ToString(message["date"]) : "";
                     await RefreshOrdersAsync();
                 }
             }
@@ -117,6 +132,7 @@ namespace FoodDeliveryPrintingSystem
                 pageTimeoutTimer.Stop();
                 pagingFinished = true;
                 refreshing = false;
+                SendLoading(false);
                 Show();
                 Activate();
                 SendStatus("Rocket Manager 窗口已关闭。", "warn");
@@ -130,8 +146,30 @@ namespace FoodDeliveryPrintingSystem
             await rocket.EnsureCoreWebView2Async(environment);
             rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
             rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
+            rocket.CoreWebView2.AddWebResourceRequestedFilter(
+                "*" + OrderApiPart + "*", CoreWebView2WebResourceContext.All);
+            rocket.CoreWebView2.WebResourceRequested += RocketResourceRequested;
             rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
+        }
+
+        void RocketResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            if (!refreshing || directFetchActive ||
+                e.Request.Uri.IndexOf(OrderApiPart, StringComparison.OrdinalIgnoreCase) < 0 ||
+                !String.Equals(e.Request.Method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                e.Request.Content == null) return;
+            try
+            {
+                using (StreamReader reader = new StreamReader(
+                    e.Request.Content, Encoding.UTF8, true, 1024, true))
+                    lastOrderQueryBody = reader.ReadToEnd();
+                if (e.Request.Content.CanSeek) e.Request.Content.Position = 0;
+            }
+            catch
+            {
+                if (e.Request.Content.CanSeek) e.Request.Content.Position = 0;
+            }
         }
 
         async Task RefreshOrdersAsync()
@@ -146,10 +184,14 @@ namespace FoodDeliveryPrintingSystem
             processedPages.Clear();
             pagingFinished = false;
             partialResult = false;
+            directFetchActive = false;
+            fastFetchTried = false;
+            lastOrderQueryBody = "";
             scannedOrderCount = 0;
             observedPageSize = 0;
             finishTimer.Stop();
             pageTimeoutTimer.Stop();
+            SendLoading(false);
             SendStatus("正在打开 Rocket Manager 并读取默认范围的全部订单…", "info");
             await EnsureRocketAsync();
             rocketForm.Show();
@@ -162,10 +204,21 @@ namespace FoodDeliveryPrintingSystem
 
         void ShowRocketLogin()
         {
+            SendLoading(false);
             if (rocketForm == null || rocketForm.IsDisposed) return;
             rocketForm.Show();
             rocketForm.WindowState = FormWindowState.Normal;
             rocketForm.Activate();
+        }
+
+        void ShowQueryInMainWindow()
+        {
+            SendLoading(true);
+            Show();
+            WindowState = FormWindowState.Normal;
+            Activate();
+            if (rocketForm == null || rocketForm.IsDisposed) return;
+            rocketForm.WindowState = FormWindowState.Minimized;
         }
 
         void RocketNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -197,6 +250,7 @@ namespace FoodDeliveryPrintingSystem
             else
             {
                 navigatingToOrders = false;
+                if (refreshing) ShowQueryInMainWindow();
                 SendStatus("已打开订单页面，正在等待订单数据…", "info");
                 if (refreshing && processedPages.Count == 0)
                 {
@@ -208,7 +262,7 @@ namespace FoodDeliveryPrintingSystem
 
         async void RocketResponseReceived(object sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
         {
-            if (!refreshing || e.Request.Uri.IndexOf(OrderApiPart,
+            if (!refreshing || directFetchActive || e.Request.Uri.IndexOf(OrderApiPart,
                 StringComparison.OrdinalIgnoreCase) < 0) return;
             try
             {
@@ -236,49 +290,20 @@ namespace FoodDeliveryPrintingSystem
 
         async Task ProcessOrderPageAsync(string body)
         {
-            Dictionary<string, object> root =
-                json.DeserializeObject(body) as Dictionary<string, object>;
-            if (root == null || pagingFinished) return;
-
-            int pageNumber = ToInt(Get(root, "pageNumber"), processedPages.Count);
-            if (processedPages.Contains(pageNumber)) return;
-            pageTimeoutTimer.Stop();
-            processedPages.Add(pageNumber);
-
-            IEnumerable content = FindOrderContent(root);
-            int pageOrderCount = 0;
-            if (content != null)
-            {
-                foreach (object value in content)
-                {
-                    Dictionary<string, object> order = value as Dictionary<string, object>;
-                    if (order == null) continue;
-                    pageOrderCount++;
-
-                    Dictionary<string, object> normalized = Normalize(order);
-                    string key = ToText(Get(order, "uniqueOrderId"));
-                    if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
-                    if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
-                    if (!String.IsNullOrEmpty(key)) collectedOrders[key] = normalized;
-                }
-            }
-
-            scannedOrderCount += pageOrderCount;
-            if (pageOrderCount > observedPageSize) observedPageSize = pageOrderCount;
-
+            PageInfo info = StoreOrderPage(body);
+            if (info == null || info.WasDuplicate || pagingFinished) return;
             PublishCollectedOrders();
-            int totalElements = ToInt(Get(root, "totalElements"),
-                ToInt(Get(root, "total"), 0));
-            int lastPageNumber = ToInt(Get(root, "lastPageNumber"), -1);
             bool reachedReportedLastPage =
-                lastPageNumber >= 0 && pageNumber >= lastPageNumber;
-            bool reachedTotal = totalElements > 0 &&
-                scannedOrderCount >= totalElements;
+                info.LastPageNumber >= 0 && info.PageNumber >= info.LastPageNumber;
+            bool reachedTotal = info.TotalElements > 0 &&
+                scannedOrderCount >= info.TotalElements;
+            bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
             bool shortPage = observedPageSize > 0 &&
-                pageOrderCount < observedPageSize;
+                info.PageOrderCount < observedPageSize;
             bool reachedSafetyLimit = processedPages.Count >= MaximumPages;
-            bool hasMore = pageOrderCount > 0 && !reachedReportedLastPage &&
-                !reachedTotal && !shortPage && !reachedSafetyLimit;
+            bool hasMore = info.PageOrderCount > 0 && !reachedReportedLastPage &&
+                !reachedTotal && !reachedSelectedDateFloor &&
+                !shortPage && !reachedSafetyLimit;
 
             if (!hasMore)
             {
@@ -287,11 +312,30 @@ namespace FoodDeliveryPrintingSystem
                     partialResult = true;
                     SendStatus("已达到分页安全上限，保留当前读取结果。", "warn");
                 }
+                else if (reachedSelectedDateFloor)
+                {
+                    SendStatus("已读到早于所选日期的订单，停止继续翻页。", "info");
+                }
                 FinishPaging();
                 return;
             }
 
-            SendStatus("正在读取第 " + (pageNumber + 2) + " 页，已读取 " +
+            if (!fastFetchTried && !String.IsNullOrEmpty(lastOrderQueryBody))
+            {
+                fastFetchTried = true;
+                SendStatus("正在加速读取剩余分页，已读取 " +
+                    collectedOrders.Count + " 条…", "info");
+                bool fastOk = await FetchRemainingPagesDirectlyAsync(
+                    info.PageNumber, info.TotalElements, info.LastPageNumber);
+                if (fastOk)
+                {
+                    FinishPaging();
+                    return;
+                }
+                SendStatus("加速读取失败，改用网页翻页继续读取…", "warn");
+            }
+
+            SendStatus("正在读取第 " + (info.PageNumber + 2) + " 页，已读取 " +
                 collectedOrders.Count + " 条…", "info");
             await Task.Delay(650);
             bool clicked = await ClickNextPageWithRetryAsync();
@@ -309,6 +353,161 @@ namespace FoodDeliveryPrintingSystem
                     pageTimeoutTimer.Start();
                 }
             }
+        }
+
+        PageInfo StoreOrderPage(string body)
+        {
+            Dictionary<string, object> root =
+                json.DeserializeObject(body) as Dictionary<string, object>;
+            if (root == null || pagingFinished) return null;
+
+            PageInfo info = new PageInfo();
+            info.PageNumber = ToInt(Get(root, "pageNumber"), processedPages.Count);
+            info.TotalElements = ToInt(Get(root, "totalElements"),
+                ToInt(Get(root, "total"), 0));
+            info.LastPageNumber = ToInt(Get(root, "lastPageNumber"), -1);
+            if (processedPages.Contains(info.PageNumber))
+            {
+                info.WasDuplicate = true;
+                return info;
+            }
+
+            pageTimeoutTimer.Stop();
+            processedPages.Add(info.PageNumber);
+            IEnumerable content = FindOrderContent(root);
+            if (content != null)
+            {
+                foreach (object value in content)
+                {
+                    Dictionary<string, object> order = value as Dictionary<string, object>;
+                    if (order == null) continue;
+                    info.PageOrderCount++;
+                    if (IsOlderThanSelectedDate(Get(order, "createdAt")))
+                        info.HasOlderThanSelectedDate = true;
+
+                    Dictionary<string, object> normalized = Normalize(order);
+                    string key = ToText(Get(order, "uniqueOrderId"));
+                    if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
+                    if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
+                    if (!String.IsNullOrEmpty(key)) collectedOrders[key] = normalized;
+                }
+            }
+
+            scannedOrderCount += info.PageOrderCount;
+            if (info.PageOrderCount > observedPageSize) observedPageSize = info.PageOrderCount;
+            return info;
+        }
+
+        async Task<bool> FetchRemainingPagesDirectlyAsync(
+            int currentPageNumber, int totalElements, int lastPageNumber)
+        {
+            directFetchActive = true;
+            try
+            {
+                int maxPage = lastPageNumber >= 0 ? lastPageNumber : MaximumPages - 1;
+                for (int page = currentPageNumber + 1;
+                    page <= maxPage && processedPages.Count < MaximumPages; page++)
+                {
+                    if (totalElements > 0 && scannedOrderCount >= totalElements)
+                        return true;
+
+                    string requestBody = BuildPageRequestBody(lastOrderQueryBody, page);
+                    if (String.IsNullOrEmpty(requestBody)) return false;
+
+                    string script = "(async()=>{try{const r=await fetch('" + OrderApiPart +
+                        "',{method:'POST',credentials:'include',headers:{" +
+                        "'accept':'application/json','content-type':'application/json;charset=UTF-8'}," +
+                        "body:" + json.Serialize(requestBody) + "});" +
+                        "const text=await r.text();" +
+                        "return JSON.stringify({status:r.status,body:text});" +
+                        "}catch(e){return JSON.stringify({status:-1,body:String(e)});}})()";
+                    string result = await rocket.CoreWebView2.ExecuteScriptAsync(script);
+                    string wrapperText = json.Deserialize<string>(result);
+                    Dictionary<string, object> wrapper =
+                        json.DeserializeObject(wrapperText) as Dictionary<string, object>;
+                    int status = ToInt(Get(wrapper, "status"), -1);
+                    if (status == 401 || status == 403)
+                    {
+                        ShowRocketLogin();
+                        return false;
+                    }
+                    if (status < 200 || status >= 300) return false;
+
+                    PageInfo info = StoreOrderPage(ToText(Get(wrapper, "body")));
+                    if (info == null) return false;
+                    if (!info.WasDuplicate)
+                    {
+                        PublishCollectedOrders();
+                        if (info.PageOrderCount > 0)
+                            SendStatus("正在加速读取第 " + (info.PageNumber + 1) +
+                                " 页，已读取 " + collectedOrders.Count + " 条…", "info");
+                    }
+
+                    bool reachedReportedLastPage =
+                        info.LastPageNumber >= 0 && info.PageNumber >= info.LastPageNumber;
+                    bool reachedTotal = info.TotalElements > 0 &&
+                        scannedOrderCount >= info.TotalElements;
+                    bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
+                    bool shortPage = observedPageSize > 0 &&
+                        info.PageOrderCount < observedPageSize;
+                    if (info.PageOrderCount == 0 || reachedReportedLastPage ||
+                        reachedTotal || reachedSelectedDateFloor || shortPage)
+                        return true;
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                directFetchActive = false;
+            }
+        }
+
+        string BuildPageRequestBody(string sourceBody, int pageNumber)
+        {
+            Dictionary<string, object> payload =
+                json.DeserializeObject(sourceBody) as Dictionary<string, object>;
+            if (payload == null) return "";
+            if (!SetPageNumber(payload, pageNumber)) payload["pageNumber"] = pageNumber;
+            return json.Serialize(payload);
+        }
+
+        static bool SetPageNumber(object value, int pageNumber)
+        {
+            Dictionary<string, object> data = value as Dictionary<string, object>;
+            if (data != null)
+            {
+                bool changed = false;
+                List<string> keys = new List<string>(data.Keys);
+                foreach (string key in keys)
+                {
+                    if (String.Equals(key, "pageNumber", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data[key] = pageNumber;
+                        changed = true;
+                    }
+                    else if (SetPageNumber(data[key], pageNumber)) changed = true;
+                }
+                return changed;
+            }
+
+            IEnumerable values = value as IEnumerable;
+            if (values == null || value is string) return false;
+            bool childChanged = false;
+            foreach (object child in values)
+                if (SetPageNumber(child, pageNumber)) childChanged = true;
+            return childChanged;
+        }
+
+        bool IsOlderThanSelectedDate(object value)
+        {
+            if (String.IsNullOrEmpty(selectedDate)) return false;
+            string key = TokyoDateKey(value);
+            return !String.IsNullOrEmpty(key) &&
+                String.CompareOrdinal(key, selectedDate) < 0;
         }
 
         async Task<bool> ClickNextPageWithRetryAsync()
@@ -380,6 +579,7 @@ namespace FoodDeliveryPrintingSystem
             finishTimer.Stop();
             pageTimeoutTimer.Stop();
             refreshing = false;
+            SendLoading(false);
             if (rocketForm != null) rocketForm.Hide();
             Show();
             Activate();
@@ -482,6 +682,15 @@ namespace FoodDeliveryPrintingSystem
             ui.CoreWebView2.PostWebMessageAsJson(json.Serialize(payload));
         }
 
+        void SendLoading(bool isLoading)
+        {
+            if (ui.CoreWebView2 == null) return;
+            Dictionary<string, object> payload = new Dictionary<string, object>();
+            payload["type"] = "loading";
+            payload["loading"] = isLoading;
+            ui.CoreWebView2.PostWebMessageAsJson(json.Serialize(payload));
+        }
+
         static object Get(Dictionary<string, object> data, string key)
         {
             if (data == null || !data.ContainsKey(key)) return null;
@@ -491,6 +700,29 @@ namespace FoodDeliveryPrintingSystem
         static string ToText(object value)
         {
             return value == null ? "" : Convert.ToString(value);
+        }
+
+        static string TokyoDateKey(object value)
+        {
+            if (value == null) return "";
+            DateTime parsed;
+            string text = Convert.ToString(value);
+            long millis;
+            if (Int64.TryParse(text, out millis))
+            {
+                parsed = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                    .AddMilliseconds(millis);
+            }
+            else if (!DateTime.TryParse(text, out parsed))
+            {
+                return text == null || text.Length < 10 ? "" : text.Substring(0, 10);
+            }
+
+            if (parsed.Kind == DateTimeKind.Unspecified)
+                parsed = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+            TimeZoneInfo tokyo = TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+            DateTime local = TimeZoneInfo.ConvertTimeFromUtc(parsed.ToUniversalTime(), tokyo);
+            return local.ToString("yyyy-MM-dd");
         }
 
         static int ToInt(object value, int fallback)

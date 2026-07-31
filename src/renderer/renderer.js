@@ -3,6 +3,7 @@ let orders = [];
 let stores = new Map();
 let selectedStores = new Set();
 let storeSelectionChanged = false;
+const DEFAULT_STORE_KEYWORD = '川崎';
 
 function todayKey() {
   return dateKey(Date.now());
@@ -53,7 +54,11 @@ function syncStores() {
   stores = new Map([...nextStores.entries()].sort((left, right) =>
     left[1].localeCompare(right[1], 'zh-CN')));
 
-  if (!storeSelectionChanged || previouslyAllSelected) {
+  if (!storeSelectionChanged) {
+    const defaultStores = [...stores].filter(([, label]) =>
+      label.includes(DEFAULT_STORE_KEYWORD)).map(([key]) => key);
+    selectedStores = new Set(defaultStores.length ? defaultStores : stores.keys());
+  } else if (previouslyAllSelected) {
     selectedStores = new Set(stores.keys());
   } else {
     selectedStores = new Set([...selectedStores].filter((key) => stores.has(key)));
@@ -100,13 +105,18 @@ function updateStoreControls() {
     checkbox.checked = selectedStores.has(checkbox.dataset.storeKey);
   }
 
-  if (!stores.size) $('storeSummary').textContent = '读取后可选';
+  if (!stores.size) $('storeSummary').textContent = '川崎店';
   else if (allSelected) $('storeSummary').textContent = `全店铺（${stores.size}）`;
   else if (!selectedStores.size) $('storeSummary').textContent = '未选择店铺';
   else if (selectedStores.size === 1) {
     const key = [...selectedStores][0];
     $('storeSummary').textContent = stores.get(key) || '已选 1 家店铺';
   } else $('storeSummary').textContent = `已选 ${selectedStores.size} 家店铺`;
+}
+
+function setLoading(isLoading) {
+  $('loadingOverlay').hidden = !isLoading;
+  $('refresh').disabled = isLoading;
 }
 
 function render() {
@@ -172,7 +182,7 @@ function showDetails(order) {
 
 $('refresh').onclick = () => {
   $('status').textContent = '正在打开 Rocket Manager…';
-  window.chrome.webview.postMessage({ type: 'refresh' });
+  window.chrome.webview.postMessage({ type: 'refresh', date: $('date').value });
 };
 $('date').onchange = render;
 $('storeToggle').onclick = () => {
@@ -205,7 +215,11 @@ window.chrome.webview.addEventListener('message', (event) => {
     $('status').textContent = message.message;
     $('status').className = `status-${message.kind || 'info'}`;
   }
+  if (message.type === 'loading') {
+    setLoading(Boolean(message.loading));
+  }
 });
 
 $('date').value = todayKey();
+setLoading(false);
 render();
