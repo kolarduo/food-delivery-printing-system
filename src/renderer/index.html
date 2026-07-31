@@ -57,9 +57,16 @@
   </main>
 
   <dialog id="details">
-    <div class="dialogHead"><h2>商品详情</h2><button id="close">关闭</button></div>
+    <div class="dialogHead">
+      <h2>商品详情</h2>
+      <div class="dialogActions">
+        <button id="print" type="button">打印</button>
+        <button id="close" type="button">关闭</button>
+      </div>
+    </div>
     <div id="detailList"></div>
   </dialog>
+  <section id="printArea" aria-hidden="true"></section>
   <div id="loadingOverlay" class="loadingOverlay" hidden>
     <div class="loadingBox" role="status" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>

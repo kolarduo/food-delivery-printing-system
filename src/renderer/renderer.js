@@ -3,6 +3,7 @@ let orders = [];
 let stores = new Map();
 let selectedStores = new Set();
 let storeSelectionChanged = false;
+let currentDetailOrder = null;
 const DEFAULT_STORE_KEYWORD = '川崎';
 
 function todayKey() {
@@ -159,6 +160,7 @@ function render() {
 }
 
 function showDetails(order) {
+  currentDetailOrder = order;
   const list = $('detailList');
   list.replaceChildren();
   for (const item of order.detailItems || []) {
@@ -178,6 +180,51 @@ function showDetails(order) {
   }
   if (!list.children.length) list.textContent = '没有商品明细';
   $('details').showModal();
+}
+
+function appendText(parent, tagName, className, text) {
+  const element = document.createElement(tagName);
+  element.className = className;
+  element.textContent = text;
+  parent.appendChild(element);
+  return element;
+}
+
+function preparePrintLabel(order) {
+  const area = $('printArea');
+  area.replaceChildren();
+  const label = document.createElement('article');
+  label.className = 'labelTicket';
+
+  const meta = document.createElement('div');
+  meta.className = 'labelMeta';
+  appendText(meta, 'span', '', order.id ? `#${order.id}` : '');
+  appendText(meta, 'span', '', localDate(order.date));
+  label.appendChild(meta);
+
+  for (const item of order.detailItems || []) {
+    const block = document.createElement('section');
+    block.className = 'labelItem';
+    appendText(block, 'div', 'labelItemName', `${item.name || '商品'} ×${item.quantity || 1}`);
+    for (const option of item.options || []) {
+      const name = option.quantity > 1
+        ? `${option.name} ×${option.quantity}` : option.name;
+      appendText(block, 'div', 'labelOption', name || '');
+    }
+    label.appendChild(block);
+  }
+
+  if (!(order.detailItems || []).length) {
+    appendText(label, 'div', 'labelItemName', '没有商品明细');
+  }
+
+  area.appendChild(label);
+}
+
+function printCurrentOrder() {
+  if (!currentDetailOrder) return;
+  preparePrintLabel(currentDetailOrder);
+  window.print();
 }
 
 $('refresh').onclick = () => {
@@ -202,6 +249,7 @@ document.addEventListener('click', (event) => {
   $('storeToggle').setAttribute('aria-expanded', 'false');
 });
 $('close').onclick = () => $('details').close();
+$('print').onclick = printCurrentOrder;
 
 window.chrome.webview.addEventListener('message', (event) => {
   const message = event.data;

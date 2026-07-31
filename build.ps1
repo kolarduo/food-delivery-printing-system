@@ -5,10 +5,10 @@ $packageVersion = '1.0.4078.44'
 $cacheRoot = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-build-cache'
 $vendorDir = Join-Path $cacheRoot 'webview2'
 $packageFile = Join-Path $cacheRoot "Microsoft.Web.WebView2.$packageVersion.nupkg"
-$stageDir = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-stage-0.1.2'
-$payloadFile = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-payload-0.1.2.zip'
+$stageDir = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-stage-0.2.0'
+$payloadFile = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-payload-0.2.0.zip'
 $outputDir = Join-Path $projectDir 'dist'
-$outputExe = Join-Path $outputDir 'FoodDeliveryPrintingSystem-0.1.2.exe'
+$outputExe = Join-Path $outputDir 'FoodDeliveryPrintingSystem-0.2.0.exe'
 
 if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll')) -or
     -not (Test-Path (Join-Path $vendorDir 'runtimes\win-x64\native\WebView2Loader.dll'))) {
