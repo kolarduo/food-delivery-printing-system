@@ -29,6 +29,9 @@ namespace FoodDeliveryPrintingSystem
         const string OrderApiPart = "/api/v1/merchant/web/multipleStore/order/queryByPage";
         readonly WebView2 ui = new WebView2();
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue };
+        readonly Dictionary<string, Dictionary<string, object>> collectedOrders =
+            new Dictionary<string, Dictionary<string, object>>();
+        readonly Timer finishTimer = new Timer();
         CoreWebView2Environment environment;
         Form rocketForm;
         WebView2 rocket;
@@ -44,6 +47,8 @@ namespace FoodDeliveryPrintingSystem
             StartPosition = FormStartPosition.CenterScreen;
             ui.Dock = DockStyle.Fill;
             Controls.Add(ui);
+            finishTimer.Interval = 1800;
+            finishTimer.Tick += FinishTimerTick;
             Shown += async delegate { await InitializeAsync(); };
         }
 
@@ -107,8 +112,70 @@ namespace FoodDeliveryPrintingSystem
             await rocket.EnsureCoreWebView2Async(environment);
             rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
             rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
+            rocket.CoreWebView2.AddWebResourceRequestedFilter(
+                "*://store.rocketnow.co.jp/api/v1/merchant/web/multipleStore/order/queryByPage*",
+                CoreWebView2WebResourceContext.All);
+            rocket.CoreWebView2.WebResourceRequested += RocketResourceRequested;
             rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
+        }
+
+        void RocketResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            if (!String.Equals(e.Request.Method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                e.Request.Content == null) return;
+            try
+            {
+                string body;
+                using (StreamReader reader = new StreamReader(
+                    e.Request.Content, Encoding.UTF8, true, 1024, true))
+                    body = reader.ReadToEnd();
+                object payload = json.DeserializeObject(body);
+                if (!ExpandPage(payload))
+                {
+                    if (e.Request.Content.CanSeek) e.Request.Content.Position = 0;
+                    return;
+                }
+                byte[] bytes = Encoding.UTF8.GetBytes(json.Serialize(payload));
+                e.Request.Content = new MemoryStream(bytes);
+            }
+            catch
+            {
+                if (e.Request.Content != null && e.Request.Content.CanSeek)
+                    e.Request.Content.Position = 0;
+            }
+        }
+
+        static bool ExpandPage(object value)
+        {
+            bool changed = false;
+            Dictionary<string, object> data = value as Dictionary<string, object>;
+            if (data != null)
+            {
+                List<string> keys = new List<string>(data.Keys);
+                foreach (string key in keys)
+                {
+                    if (String.Equals(key, "pageSize", StringComparison.OrdinalIgnoreCase) ||
+                        String.Equals(key, "size", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data[key] = 500;
+                        changed = true;
+                    }
+                    else if (String.Equals(key, "pageNumber", StringComparison.OrdinalIgnoreCase) ||
+                             String.Equals(key, "page", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data[key] = 0;
+                        changed = true;
+                    }
+                    else if (ExpandPage(data[key])) changed = true;
+                }
+                return changed;
+            }
+            IEnumerable values = value as IEnumerable;
+            if (values != null && !(value is string))
+                foreach (object child in values)
+                    if (ExpandPage(child)) changed = true;
+            return changed;
         }
 
         async Task RefreshOrdersAsync()
@@ -120,6 +187,8 @@ namespace FoodDeliveryPrintingSystem
             }
 
             refreshing = true;
+            collectedOrders.Clear();
+            finishTimer.Stop();
             SendStatus("正在打开 Rocket Manager…", "info");
             await EnsureRocketAsync();
             rocketForm.Show();
@@ -172,7 +241,6 @@ namespace FoodDeliveryPrintingSystem
 
                 Dictionary<string, object> root = json.DeserializeObject(body) as Dictionary<string, object>;
                 IEnumerable content = FindOrderContent(root);
-                List<Dictionary<string, object>> orders = new List<Dictionary<string, object>>();
                 if (content != null)
                 {
                     foreach (object value in content)
@@ -183,26 +251,40 @@ namespace FoodDeliveryPrintingSystem
                         string storeName = ToText(Get(store, "storeName"));
                         if (storeName.IndexOf("川崎", StringComparison.OrdinalIgnoreCase) < 0 &&
                             storeName.IndexOf("kawasaki", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                        orders.Add(Normalize(order));
+                        Dictionary<string, object> normalized = Normalize(order);
+                        string key = ToText(Get(order, "uniqueOrderId"));
+                        if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
+                        if (String.IsNullOrEmpty(key)) continue;
+                        collectedOrders[key] = normalized;
                     }
                 }
 
+                List<Dictionary<string, object>> orders =
+                    new List<Dictionary<string, object>>(collectedOrders.Values);
                 Dictionary<string, object> message = new Dictionary<string, object>();
                 message["type"] = "orders";
                 message["orders"] = orders;
                 message["capturedAt"] = DateTime.UtcNow.ToString("o");
                 ui.CoreWebView2.PostWebMessageAsJson(json.Serialize(message));
-                refreshing = false;
-                rocketForm.Hide();
-                Show();
-                Activate();
-                SendStatus("已读取 Kawasaki 店 " + orders.Count + " 条订单", "ok");
+                SendStatus("正在合并订单，当前已找到 " + orders.Count + " 条…", "info");
+                finishTimer.Stop();
+                finishTimer.Start();
             }
             catch (Exception ex)
             {
                 refreshing = false;
                 SendStatus("订单数据解析失败：" + ex.Message, "warn");
             }
+        }
+
+        void FinishTimerTick(object sender, EventArgs e)
+        {
+            finishTimer.Stop();
+            refreshing = false;
+            if (rocketForm != null) rocketForm.Hide();
+            Show();
+            Activate();
+            SendStatus("已读取 Kawasaki 店 " + collectedOrders.Count + " 条订单", "ok");
         }
 
         Dictionary<string, object> Normalize(Dictionary<string, object> order)
