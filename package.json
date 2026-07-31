@@ -1,0 +1,23 @@
+{
+  "name": "rocket-now-order-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rocket Now Manager order desktop UI",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^37.2.4",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "jp.haidilao.rocket-order-manager",
+    "productName": "Rocket订单管理",
+    "asar": true,
+    "directories": { "output": "dist" },
+    "files": ["src/**/*", "package.json"],
+    "win": { "target": "portable", "artifactName": "Rocket订单管理-${version}.exe" }
+  }
+}

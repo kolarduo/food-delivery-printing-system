@@ -1,0 +1,8 @@
+node_modules/
+.rocket-profile/
+captured-orders/
+npm-debug.log*
+dist/
+request*.txt
+respon*.txt
+*.log
