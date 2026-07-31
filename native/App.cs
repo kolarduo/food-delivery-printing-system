@@ -105,6 +105,8 @@ namespace FoodDeliveryPrintingSystem
             rocket.Dock = DockStyle.Fill;
             rocketForm.Controls.Add(rocket);
             await rocket.EnsureCoreWebView2Async(environment);
+            rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
+            rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
             rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
         }
