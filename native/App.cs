@@ -315,10 +315,10 @@ namespace FoodDeliveryPrintingSystem
                     {
                         Dictionary<string, object> order = value as Dictionary<string, object>;
                         if (order == null) continue;
-                        Dictionary<string, object> store = Get(order, "store") as Dictionary<string, object>;
-                        string storeName = ToText(Get(store, "storeName"));
-                        if (storeName.IndexOf("川崎", StringComparison.OrdinalIgnoreCase) < 0 &&
-                            storeName.IndexOf("kawasaki", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        // The query itself is fixed to storeIds [71532]. Check the
+                        // stable numeric ID instead of filtering by translated name.
+                        string storeId = ToText(Get(order, "storeId"));
+                        if (!String.IsNullOrEmpty(storeId) && storeId != "71532") continue;
                         Dictionary<string, object> normalized = Normalize(order);
                         string key = ToText(Get(order, "uniqueOrderId"));
                         if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
