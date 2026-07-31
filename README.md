@@ -1,11 +1,11 @@
 # 外卖打印系统
 
-Rocket Now Manager 订单读取与管理桌面程序。当前版本为 `0.1.0`。
+Rocket Now Manager 订单读取与管理桌面程序。当前版本为 `0.1.1`，默认只显示 Kawasaki 店订单。
 
 ## 当前功能
 
 - 独立 Windows 桌面 UI
-- 按日期和店铺筛选订单
+- 按日期筛选 Kawasaki 店订单
 - 点击“刷新订单”后从 Rocket Manager 读取订单
 - 登录状态失效时打开 Rocket 官方登录窗口
 - 登录成功后自动继续读取订单

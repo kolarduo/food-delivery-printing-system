@@ -81,7 +81,7 @@ function currentOrders() {
       unique.set(key, item);
     }
   }
-  return [...unique.values()];
+  return [...unique.values()].filter((order) => /川崎|kawasaki/i.test(order.store));
 }
 
 async function saveCapture(url, data) {
@@ -162,7 +162,10 @@ function showLoginWindow() {
   rocketWindow.show();
   rocketWindow.focus();
   sendStatus('无法读取订单。请在弹出的 Rocket Manager 官方窗口中登录。', 'warn');
+  for (const resolve of loginWaiters.splice(0)) resolve(false);
 }
+
+let loginWaiters = [];
 
 function waitForOrderCapture(sequence, timeoutMs) {
   if (captureSequence > sequence) return Promise.resolve(true);
@@ -171,10 +174,13 @@ function waitForOrderCapture(sequence, timeoutMs) {
       clearTimeout(timer);
       const index = captureWaiters.indexOf(done);
       if (index >= 0) captureWaiters.splice(index, 1);
+      const loginIndex = loginWaiters.indexOf(done);
+      if (loginIndex >= 0) loginWaiters.splice(loginIndex, 1);
       resolve(value);
     };
     const timer = setTimeout(() => done(false), timeoutMs);
     captureWaiters.push(done);
+    loginWaiters.push(done);
   });
 }
 
@@ -182,13 +188,8 @@ async function checkLogin() {
   sendStatus('正在从 Rocket Manager 读取订单并检查登录状态…');
   const win = await ensureRocketWindow(false);
   const before = captureSequence;
-  try {
-    await win.loadURL(ORDERS_URL);
-  } catch {
-    showLoginWindow();
-    return false;
-  }
-  const captured = await waitForOrderCapture(before, 10000);
+  win.loadURL(ORDERS_URL).catch(() => showLoginWindow());
+  const captured = await waitForOrderCapture(before, 8000);
   if (!captured) {
     showLoginWindow();
     return false;
@@ -205,18 +206,13 @@ function createMainWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.once('ready-to-show', () => {
-    sendStatus('请选择日期和店铺，然后点击“刷新订单”开始读取。');
+    sendStatus('点击右上角“刷新订单”开始读取 Kawasaki 店订单。');
   });
 }
 
 ipcMain.handle('get-orders', () => currentOrders());
 ipcMain.handle('refresh-orders', async () => {
   return checkLogin();
-});
-ipcMain.handle('open-rocket', async () => {
-  const win = await ensureRocketWindow(true);
-  if (!win.webContents.getURL()) await win.loadURL(ORDERS_URL);
-  return true;
 });
 ipcMain.handle('get-status', () => ({ lastCaptureAt, count: currentOrders().length }));
 
