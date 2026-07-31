@@ -64,7 +64,7 @@ namespace FoodDeliveryPrintingSystem
 
         public MainForm()
         {
-            Text = "外卖打印系统";
+            Text = "Rocket外卖打印工具_v0.2.2";
             Width = 1180;
             Height = 760;
             MinimumSize = new Size(900, 600);
@@ -97,7 +97,7 @@ namespace FoodDeliveryPrintingSystem
             }
             catch (Exception ex)
             {
-                MessageBox.Show("程序初始化失败：\n" + ex.Message, "外卖打印系统",
+                MessageBox.Show("程序初始化失败：\n" + ex.Message, "Rocket外卖打印工具_v0.2.2",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -402,6 +402,17 @@ namespace FoodDeliveryPrintingSystem
                 {
                     Dictionary<string, object> order = value as Dictionary<string, object>;
                     if (order == null) continue;
+                    info.PageOrderCount++;
+
+                    object createdAt = Get(order, "createdAt");
+                    if (IsOlderThanSelectedDate(createdAt))
+                    {
+                        info.HasOlderThanSelectedDate = true;
+                        break;
+                    }
+
+                    if (!IsOnSelectedDate(createdAt)) continue;
+
                     string key = ToText(Get(order, "uniqueOrderId"));
                     if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
                     string abbrId = ToText(Get(order, "abbrOrderId"));
@@ -410,10 +421,6 @@ namespace FoodDeliveryPrintingSystem
                         info.HasKnownOrder = true;
                         break;
                     }
-
-                    info.PageOrderCount++;
-                    if (IsOlderThanSelectedDate(Get(order, "createdAt")))
-                        info.HasOlderThanSelectedDate = true;
 
                     Dictionary<string, object> normalized = Normalize(order);
                     if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
@@ -542,6 +549,13 @@ namespace FoodDeliveryPrintingSystem
             string key = TokyoDateKey(value);
             return !String.IsNullOrEmpty(key) &&
                 String.CompareOrdinal(key, selectedDate) < 0;
+        }
+
+        bool IsOnSelectedDate(object value)
+        {
+            if (String.IsNullOrEmpty(selectedDate)) return true;
+            string key = TokyoDateKey(value);
+            return String.Equals(key, selectedDate, StringComparison.Ordinal);
         }
 
         async Task<bool> ClickNextPageWithRetryAsync()
@@ -673,6 +687,10 @@ namespace FoodDeliveryPrintingSystem
                 Dictionary<string, object> detail = new Dictionary<string, object>();
                 detail["name"] = ToText(Get(item, "name"));
                 detail["quantity"] = Get(item, "quantity") ?? 1;
+                detail["unitPrice"] = MoneyValue(Get(item, "unitSalePrice"),
+                    Get(item, "unitSalePriceMoney") as Dictionary<string, object>);
+                detail["totalPrice"] = MoneyValue(Get(item, "subTotalPrice"),
+                    Get(item, "subTotalPriceMoney") as Dictionary<string, object>);
                 List<Dictionary<string, object>> options = new List<Dictionary<string, object>>();
                 IEnumerable itemOptions = Get(item, "itemOptions") as IEnumerable;
                 if (itemOptions != null)
@@ -684,6 +702,10 @@ namespace FoodDeliveryPrintingSystem
                         Dictionary<string, object> optionDetail = new Dictionary<string, object>();
                         optionDetail["name"] = ToText(Get(option, "optionName"));
                         optionDetail["quantity"] = Get(option, "optionQuantity") ?? 1;
+                        optionDetail["unitPrice"] = MoneyValue(Get(option, "optionPrice"),
+                            Get(option, "optionPriceMoney") as Dictionary<string, object>);
+                        optionDetail["totalPrice"] = MoneyValue(Get(option, "optionPrice"),
+                            Get(option, "optionPriceMoney") as Dictionary<string, object>);
                         options.Add(optionDetail);
                     }
                 }
@@ -691,6 +713,13 @@ namespace FoodDeliveryPrintingSystem
                 result.Add(detail);
             }
             return result;
+        }
+
+        static object MoneyValue(object plainValue, Dictionary<string, object> money)
+        {
+            if (plainValue != null) return plainValue;
+            if (money == null) return null;
+            return Get(money, "units");
         }
 
         static IEnumerable FindOrderContent(Dictionary<string, object> root)

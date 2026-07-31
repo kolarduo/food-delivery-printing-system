@@ -5,7 +5,16 @@ let selectedStores = new Set();
 let storeSelectionChanged = false;
 let currentDetailOrder = null;
 const DEFAULT_STORE_KEYWORD = '川崎';
-const ORDER_CACHE_KEY = 'rocketOrderCacheV1';
+const KNOWN_STORE_NAMES = [
+  '海底撈火鍋 上野店',
+  '海底撈火鍋 池袋店',
+  '海底撈火鍋 新宿店',
+  '海底撈火鍋 秋葉原店',
+  '海底撈火鍋 難波店',
+  '海底撈火鍋 横浜駅前店',
+  '海底撈火鍋 川崎店',
+];
+const ORDER_CACHE_KEY = 'rocketOrderCacheV2';
 
 function todayKey() {
   return dateKey(Date.now());
@@ -18,6 +27,16 @@ function localDate(value) {
     timeZone: 'Asia/Tokyo',
     hour12: false,
   });
+}
+
+function money(value) {
+  if (value === '' || value == null) return '';
+  const number = Number(value);
+  return Number.isNaN(number) ? String(value) : `¥${number.toLocaleString('ja-JP')}`;
+}
+
+function linePrice(item) {
+  return money(item.totalPrice) || money(item.unitPrice);
 }
 
 function dateKey(value) {
@@ -33,11 +52,15 @@ function dateKey(value) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function storeKeyFromName(name) {
+  return `name:${String(name || '').trim()}`;
+}
+
 function storeInfo(order) {
   const id = String(order.storeId ?? '').trim();
   const name = String(order.storeName ?? '').trim();
   return {
-    key: id ? `id:${id}` : name ? `name:${name}` : 'unknown',
+    key: name ? storeKeyFromName(name) : id ? `id:${id}` : 'unknown',
     label: name || (id ? `店铺 ${id}` : '未知店铺'),
   };
 }
@@ -65,10 +88,14 @@ function loadCachedOrders() {
 
 function saveCachedOrders(values) {
   try {
-    localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(sortOrders(values).slice(0, 1000)));
+    localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(sortOrders([...values]).slice(0, 1000)));
   } catch {
     // If localStorage is full, the current screen can still show the merged data.
   }
+}
+
+function seedKnownStores() {
+  for (const name of KNOWN_STORE_NAMES) stores.set(storeKeyFromName(name), name);
 }
 
 function mergeOrders(primary, secondary) {
@@ -88,25 +115,19 @@ function setOrders(nextOrders, shouldCache) {
 }
 
 function syncStores() {
-  const previousKeys = new Set(stores.keys());
-  const previouslyAllSelected = previousKeys.size === 0 ||
-    [...previousKeys].every((key) => selectedStores.has(key));
-  const nextStores = new Map();
-
   for (const order of orders) {
     const store = storeInfo(order);
-    nextStores.set(store.key, store.label);
+    stores.set(store.key, store.label);
   }
 
-  stores = new Map([...nextStores.entries()].sort((left, right) =>
+  stores = new Map([...stores.entries()].sort((left, right) =>
     left[1].localeCompare(right[1], 'zh-CN')));
 
   if (!storeSelectionChanged) {
     const defaultStores = [...stores].filter(([, label]) =>
       label.includes(DEFAULT_STORE_KEYWORD)).map(([key]) => key);
-    selectedStores = new Set(defaultStores.length ? defaultStores : stores.keys());
-  } else if (previouslyAllSelected) {
-    selectedStores = new Set(stores.keys());
+    if (defaultStores.length) selectedStores = new Set(defaultStores);
+    else if (!selectedStores.size) selectedStores = new Set(stores.keys());
   } else {
     selectedStores = new Set([...selectedStores].filter((key) => stores.has(key)));
   }
@@ -183,8 +204,7 @@ function render() {
 
   for (const order of filtered) {
     const row = document.createElement('tr');
-    const amount = order.amount === '' || order.amount == null
-      ? '—' : `¥${Number(order.amount).toLocaleString('ja-JP')}`;
+    const amount = money(order.amount) || '—';
     const values = [
       order.id || '—', localDate(order.date) || '—', order.status || '—',
       order.items || '—', amount,
@@ -208,22 +228,38 @@ function showDetails(order) {
   currentDetailOrder = order;
   const list = $('detailList');
   list.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'detailGrid detailHead';
+  appendText(head, 'span', '', '商品');
+  appendText(head, 'span', '', '数量');
+  appendText(head, 'span', '', '价格');
+  list.appendChild(head);
+
   for (const item of order.detailItems || []) {
     const group = document.createElement('section');
     group.className = 'itemGroup';
-    const title = document.createElement('h3');
-    title.textContent = `${item.name || '商品'} ×${item.quantity || 1}`;
-    group.appendChild(title);
+    const itemRow = document.createElement('div');
+    itemRow.className = 'detailGrid detailItemRow';
+    appendText(itemRow, 'span', '', item.name || '商品');
+    appendText(itemRow, 'span', '', `×${item.quantity || 1}`);
+    appendText(itemRow, 'span', '', linePrice(item) || '—');
+    group.appendChild(itemRow);
     for (const option of item.options || []) {
-      const row = document.createElement('div');
-      row.className = 'optionRow';
-      row.textContent = option.quantity > 1
-        ? `${option.name} ×${option.quantity}` : option.name;
-      group.appendChild(row);
+      const optionRow = document.createElement('div');
+      optionRow.className = 'detailGrid optionRow';
+      appendText(optionRow, 'span', '', option.name || '');
+      appendText(optionRow, 'span', '', `×${option.quantity || 1}`);
+      appendText(optionRow, 'span', '', linePrice(option) || '—');
+      group.appendChild(optionRow);
     }
     list.appendChild(group);
   }
-  if (!list.children.length) list.textContent = '没有商品明细';
+  if (!(order.detailItems || []).length) list.textContent = '没有商品明细';
+  const total = document.createElement('div');
+  total.className = 'detailTotal';
+  appendText(total, 'span', '', '总价');
+  appendText(total, 'strong', '', money(order.amount) || '—');
+  list.appendChild(total);
   $('details').showModal();
 }
 
@@ -250,11 +286,19 @@ function preparePrintLabel(order) {
   for (const item of order.detailItems || []) {
     const block = document.createElement('section');
     block.className = 'labelItem';
-    appendText(block, 'div', 'labelItemName', `${item.name || '商品'} ×${item.quantity || 1}`);
+    const itemPrice = linePrice(item);
+    const itemLine = document.createElement('div');
+    itemLine.className = 'labelItemMain';
+    appendText(itemLine, 'span', 'labelItemName', `${item.name || '商品'} ×${item.quantity || 1}`);
+    if (itemPrice) appendText(itemLine, 'span', 'labelPrice', itemPrice);
+    block.appendChild(itemLine);
     for (const option of item.options || []) {
-      const name = option.quantity > 1
-        ? `${option.name} ×${option.quantity}` : option.name;
-      appendText(block, 'div', 'labelOption', name || '');
+      const optionPrice = linePrice(option);
+      const optionLine = document.createElement('div');
+      optionLine.className = 'labelOptionLine';
+      appendText(optionLine, 'span', 'labelOptionName', `${option.name || ''} ×${option.quantity || 1}`);
+      if (optionPrice) appendText(optionLine, 'span', 'labelOptionPrice', optionPrice);
+      block.appendChild(optionLine);
     }
     label.appendChild(block);
   }
@@ -262,6 +306,9 @@ function preparePrintLabel(order) {
   if (!(order.detailItems || []).length) {
     appendText(label, 'div', 'labelItemName', '没有商品明细');
   }
+
+  const total = money(order.amount);
+  if (total) appendText(label, 'div', 'labelTotal', `合計 ${total}`);
 
   area.appendChild(label);
 }
@@ -274,10 +321,14 @@ function printCurrentOrder() {
 
 $('refresh').onclick = () => {
   $('status').textContent = '正在打开 Rocket Manager…';
-  const knownOrderKeys = loadCachedOrders().map(orderKey).filter(Boolean);
+  const selectedDate = $('date').value;
+  const knownOrderKeys = loadCachedOrders()
+    .filter((order) => !selectedDate || dateKey(order.date) === selectedDate)
+    .map(orderKey)
+    .filter(Boolean);
   window.chrome.webview.postMessage({
     type: 'refresh',
-    date: $('date').value,
+    date: selectedDate,
     knownOrderKeys,
   });
 };
@@ -317,5 +368,6 @@ window.chrome.webview.addEventListener('message', (event) => {
 });
 
 $('date').value = todayKey();
+seedKnownStores();
 setOrders(loadCachedOrders(), false);
 setLoading(false);
