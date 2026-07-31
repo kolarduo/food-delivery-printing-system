@@ -3,7 +3,6 @@ node_modules/
 captured-orders/
 npm-debug.log*
 dist/
-dist-lite/
 vendor/
 request*.txt
 respon*.txt

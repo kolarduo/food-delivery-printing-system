@@ -4,7 +4,7 @@ $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $packageVersion = '1.0.4078.44'
 $vendorDir = Join-Path $projectDir 'vendor\webview2'
 $packageFile = Join-Path $projectDir "vendor\Microsoft.Web.WebView2.$packageVersion.nupkg"
-$outputDir = Join-Path $projectDir 'dist-lite\food-delivery-printing-system-0.1.0'
+$outputDir = Join-Path $projectDir 'dist\food-delivery-printing-system-0.1.0'
 
 if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll'))) {
     New-Item -ItemType Directory -Force -Path (Split-Path $packageFile) | Out-Null

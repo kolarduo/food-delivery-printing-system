@@ -26,7 +26,7 @@
 .\build.ps1
 ```
 
-构建脚本会按需下载微软官方 WebView2 SDK，并在 `dist-lite\food-delivery-printing-system-0.1.0` 生成轻量发布包。
+构建脚本会按需下载微软官方 WebView2 SDK，并在 `dist\food-delivery-printing-system-0.1.0` 生成轻量发布包。所有发布文件统一放在 `dist` 目录。
 
 ## 数据安全
 
