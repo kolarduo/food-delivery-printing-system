@@ -309,16 +309,14 @@ namespace FoodDeliveryPrintingSystem
 
                 Dictionary<string, object> root = json.DeserializeObject(body) as Dictionary<string, object>;
                 IEnumerable content = FindOrderContent(root);
+                int responseOrderCount = 0;
                 if (content != null)
                 {
                     foreach (object value in content)
                     {
                         Dictionary<string, object> order = value as Dictionary<string, object>;
                         if (order == null) continue;
-                        // The query itself is fixed to storeIds [71532]. Check the
-                        // stable numeric ID instead of filtering by translated name.
-                        string storeId = ToText(Get(order, "storeId"));
-                        if (!String.IsNullOrEmpty(storeId) && storeId != "71532") continue;
+                        responseOrderCount++;
                         Dictionary<string, object> normalized = Normalize(order);
                         string key = ToText(Get(order, "uniqueOrderId"));
                         if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
@@ -334,7 +332,8 @@ namespace FoodDeliveryPrintingSystem
                 message["orders"] = orders;
                 message["capturedAt"] = DateTime.UtcNow.ToString("o");
                 ui.CoreWebView2.PostWebMessageAsJson(json.Serialize(message));
-                SendStatus("正在合并订单，当前已找到 " + orders.Count + " 条…", "info");
+                SendStatus("Rocket 接口返回 " + responseOrderCount + " 条，已读取 " +
+                    orders.Count + " 条…", "info");
                 finishTimer.Stop();
                 finishTimer.Start();
             }

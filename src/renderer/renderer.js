@@ -21,8 +21,8 @@ function dateKey(value) {
 }
 
 function render() {
-  const selectedDate = $('date').value;
-  const filtered = orders.filter((order) => !selectedDate || dateKey(order.date) === selectedDate);
+  // Rocket has already filtered the request by the selected date and store.
+  const filtered = orders;
   $('count').textContent = filtered.length;
   $('empty').style.display = filtered.length ? 'none' : 'block';
   $('rows').replaceChildren();
