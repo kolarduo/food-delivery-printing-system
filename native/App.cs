@@ -238,7 +238,6 @@ namespace FoodDeliveryPrintingSystem
         {
             if (refreshing)
             {
-                if (rocketForm != null) { rocketForm.Show(); rocketForm.Activate(); }
                 return;
             }
 
@@ -247,10 +246,16 @@ namespace FoodDeliveryPrintingSystem
             finishTimer.Stop();
             SendStatus("正在打开 Rocket Manager…", "info");
             await EnsureRocketAsync();
-            rocketForm.Show();
-            rocketForm.Activate();
             navigatingToOrders = true;
             rocket.CoreWebView2.Navigate(OrdersUrl);
+        }
+
+        void ShowRocketLogin()
+        {
+            if (rocketForm == null || rocketForm.IsDisposed) return;
+            rocketForm.Show();
+            rocketForm.WindowState = FormWindowState.Normal;
+            rocketForm.Activate();
         }
 
         void RocketNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -266,6 +271,7 @@ namespace FoodDeliveryPrintingSystem
             if (url.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 navigatingToOrders = false;
+                ShowRocketLogin();
                 SendStatus("请在 Rocket 官方窗口中登录。", "warn");
                 return;
             }
@@ -289,6 +295,12 @@ namespace FoodDeliveryPrintingSystem
             try
             {
                 CoreWebView2WebResourceResponseView response = e.Response;
+                if (response.StatusCode == 401 || response.StatusCode == 403)
+                {
+                    ShowRocketLogin();
+                    SendStatus("Rocket 登录已过期，请重新登录。", "warn");
+                    return;
+                }
                 if (response.StatusCode < 200 || response.StatusCode >= 300) return;
                 Stream stream = await response.GetContentAsync();
                 string body;
