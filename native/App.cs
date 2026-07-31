@@ -169,7 +169,7 @@ namespace FoodDeliveryPrintingSystem
                     body = await reader.ReadToEndAsync();
 
                 Dictionary<string, object> root = json.DeserializeObject(body) as Dictionary<string, object>;
-                ArrayList content = root == null ? null : Get(root, "content") as ArrayList;
+                IEnumerable content = FindOrderContent(root);
                 List<Dictionary<string, object>> orders = new List<Dictionary<string, object>>();
                 if (content != null)
                 {
@@ -210,13 +210,13 @@ namespace FoodDeliveryPrintingSystem
             result["date"] = Get(order, "createdAt");
             result["status"] = ToText(Get(order, "status"));
             result["amount"] = Get(order, "totalAmount");
-            result["items"] = ItemSummary(Get(order, "items") as ArrayList);
+            result["items"] = ItemSummary(Get(order, "items") as IEnumerable);
             result["note"] = ToText(Get(order, "note"));
             result["raw"] = order;
             return result;
         }
 
-        string ItemSummary(ArrayList items)
+        string ItemSummary(IEnumerable items)
         {
             if (items == null) return "";
             List<string> parts = new List<string>();
@@ -227,6 +227,21 @@ namespace FoodDeliveryPrintingSystem
                 parts.Add(ToText(Get(item, "name")) + " ×" + ToText(Get(item, "quantity")));
             }
             return String.Join("、", parts.ToArray());
+        }
+
+        static IEnumerable FindOrderContent(Dictionary<string, object> root)
+        {
+            if (root == null) return null;
+            object content = Get(root, "content");
+            if (content is IEnumerable && !(content is string)) return (IEnumerable)content;
+
+            Dictionary<string, object> data = Get(root, "data") as Dictionary<string, object>;
+            if (data != null)
+            {
+                content = Get(data, "content");
+                if (content is IEnumerable && !(content is string)) return (IEnumerable)content;
+            }
+            return null;
         }
 
         void SendStatus(string message, string kind)

@@ -1,6 +1,12 @@
 const $ = (id) => document.getElementById(id);
 let orders = [];
 
+function todayKey() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now - offset).toISOString().slice(0, 10);
+}
+
 function localDate(value) {
   if (!value) return '';
   const d = new Date(Number(value) || value);
@@ -66,3 +72,6 @@ window.chrome.webview.addEventListener('message', (event) => {
     $('status').className = `status-${message.kind || 'info'}`;
   }
 });
+
+$('date').value = todayKey();
+render();
