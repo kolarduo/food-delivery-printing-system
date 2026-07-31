@@ -43,14 +43,33 @@ function render() {
     const actionCell = document.createElement('td');
     const details = document.createElement('button');
     details.textContent = '详情';
-    details.onclick = () => {
-      $('json').textContent = JSON.stringify(order.raw, null, 2);
-      $('details').showModal();
-    };
+    details.onclick = () => showDetails(order);
     actionCell.appendChild(details);
     row.appendChild(actionCell);
     $('rows').appendChild(row);
   }
+}
+
+function showDetails(order) {
+  const list = $('detailList');
+  list.replaceChildren();
+  for (const item of order.detailItems || []) {
+    const group = document.createElement('section');
+    group.className = 'itemGroup';
+    const title = document.createElement('h3');
+    title.textContent = `${item.name || '商品'} ×${item.quantity || 1}`;
+    group.appendChild(title);
+    for (const option of item.options || []) {
+      const row = document.createElement('div');
+      row.className = 'optionRow';
+      row.textContent = option.quantity > 1
+        ? `${option.name} ×${option.quantity}` : option.name;
+      group.appendChild(row);
+    }
+    list.appendChild(group);
+  }
+  if (!list.children.length) list.textContent = '没有商品明细';
+  $('details').showModal();
 }
 
 $('refresh').onclick = () => {

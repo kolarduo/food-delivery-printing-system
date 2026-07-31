@@ -213,8 +213,8 @@ namespace FoodDeliveryPrintingSystem
             result["status"] = ToText(Get(order, "status"));
             result["amount"] = Get(order, "totalAmount");
             result["items"] = ItemSummary(Get(order, "items") as IEnumerable);
+            result["detailItems"] = DetailItems(Get(order, "items") as IEnumerable);
             result["note"] = ToText(Get(order, "note"));
-            result["raw"] = order;
             return result;
         }
 
@@ -229,6 +229,37 @@ namespace FoodDeliveryPrintingSystem
                 parts.Add(ToText(Get(item, "name")) + " ×" + ToText(Get(item, "quantity")));
             }
             return String.Join("、", parts.ToArray());
+        }
+
+        List<Dictionary<string, object>> DetailItems(IEnumerable items)
+        {
+            List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
+            if (items == null) return result;
+            foreach (object value in items)
+            {
+                Dictionary<string, object> item = value as Dictionary<string, object>;
+                if (item == null) continue;
+                Dictionary<string, object> detail = new Dictionary<string, object>();
+                detail["name"] = ToText(Get(item, "name"));
+                detail["quantity"] = Get(item, "quantity") ?? 1;
+                List<Dictionary<string, object>> options = new List<Dictionary<string, object>>();
+                IEnumerable itemOptions = Get(item, "itemOptions") as IEnumerable;
+                if (itemOptions != null)
+                {
+                    foreach (object optionValue in itemOptions)
+                    {
+                        Dictionary<string, object> option = optionValue as Dictionary<string, object>;
+                        if (option == null) continue;
+                        Dictionary<string, object> optionDetail = new Dictionary<string, object>();
+                        optionDetail["name"] = ToText(Get(option, "optionName"));
+                        optionDetail["quantity"] = Get(option, "optionQuantity") ?? 1;
+                        options.Add(optionDetail);
+                    }
+                }
+                detail["options"] = options;
+                result.Add(detail);
+            }
+            return result;
         }
 
         static IEnumerable FindOrderContent(Dictionary<string, object> root)
