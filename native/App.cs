@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using System.Globalization;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -37,6 +38,7 @@ namespace FoodDeliveryPrintingSystem
         WebView2 rocket;
         bool refreshing;
         bool navigatingToOrders;
+        string selectedDate = "";
 
         public MainForm()
         {
@@ -82,7 +84,10 @@ namespace FoodDeliveryPrintingSystem
             {
                 Dictionary<string, object> message = json.DeserializeObject(e.WebMessageAsJson) as Dictionary<string, object>;
                 if (message != null && Convert.ToString(message["type"]) == "refresh")
+                {
+                    selectedDate = message.ContainsKey("date") ? Convert.ToString(message["date"]) : "";
                     await RefreshOrdersAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -131,7 +136,7 @@ namespace FoodDeliveryPrintingSystem
                     e.Request.Content, Encoding.UTF8, true, 1024, true))
                     body = reader.ReadToEnd();
                 object payload = json.DeserializeObject(body);
-                if (!ExpandPage(payload))
+                if (!ApplyQueryFilters(payload))
                 {
                     if (e.Request.Content.CanSeek) e.Request.Content.Position = 0;
                     return;
@@ -146,7 +151,7 @@ namespace FoodDeliveryPrintingSystem
             }
         }
 
-        static bool ExpandPage(object value)
+        bool ApplyQueryFilters(object value)
         {
             bool changed = false;
             Dictionary<string, object> data = value as Dictionary<string, object>;
@@ -167,15 +172,64 @@ namespace FoodDeliveryPrintingSystem
                         data[key] = 0;
                         changed = true;
                     }
-                    else if (ExpandPage(data[key])) changed = true;
+                    else if (IsStoreIdKey(key))
+                    {
+                        data[key] = data[key] is IEnumerable && !(data[key] is string)
+                            ? (object)new object[] { 71532 } : 71532;
+                        changed = true;
+                    }
+                    else if (!String.IsNullOrEmpty(selectedDate) && IsDateKey(key))
+                    {
+                        data[key] = DateFilterValue(data[key], key);
+                        changed = true;
+                    }
+                    else if (ApplyQueryFilters(data[key])) changed = true;
                 }
                 return changed;
             }
             IEnumerable values = value as IEnumerable;
             if (values != null && !(value is string))
                 foreach (object child in values)
-                    if (ExpandPage(child)) changed = true;
+                    if (ApplyQueryFilters(child)) changed = true;
             return changed;
+        }
+
+        static bool IsStoreIdKey(string key)
+        {
+            string lower = key.ToLowerInvariant();
+            return lower == "storeid" || lower == "storeids" ||
+                   lower == "storeidlist" || lower == "selectedstoreids";
+        }
+
+        static bool IsDateKey(string key)
+        {
+            string lower = key.ToLowerInvariant();
+            return lower == "startdate" || lower == "enddate" ||
+                   lower == "fromdate" || lower == "todate" ||
+                   lower == "begindate" || lower == "orderdate" ||
+                   lower == "starttime" || lower == "endtime" ||
+                   lower == "startat" || lower == "endat";
+        }
+
+        object DateFilterValue(object original, string key)
+        {
+            DateTime day;
+            if (!DateTime.TryParseExact(selectedDate, "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out day)) return original;
+            string lower = key.ToLowerInvariant();
+            bool isEnd = lower.StartsWith("end") || lower.StartsWith("to");
+            DateTime value = isEnd ? day.AddDays(1).AddMilliseconds(-1) : day;
+
+            if (original is Int32 || original is Int64 || original is Double || original is Decimal)
+            {
+                DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                return Convert.ToInt64((value.ToUniversalTime() - epoch).TotalMilliseconds);
+            }
+
+            string text = Convert.ToString(original);
+            if (text != null && text.IndexOf("T", StringComparison.Ordinal) >= 0)
+                return value.ToString("yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            return selectedDate;
         }
 
         async Task RefreshOrdersAsync()

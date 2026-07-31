@@ -74,7 +74,7 @@ function showDetails(order) {
 
 $('refresh').onclick = () => {
   $('status').textContent = '正在打开 Rocket Manager…';
-  window.chrome.webview.postMessage({ type: 'refresh' });
+  window.chrome.webview.postMessage({ type: 'refresh', date: $('date').value });
 };
 $('date').onchange = render;
 $('close').onclick = () => $('details').close();
