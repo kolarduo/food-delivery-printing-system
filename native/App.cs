@@ -216,14 +216,16 @@ namespace FoodDeliveryPrintingSystem
             DateTime day;
             if (!DateTime.TryParseExact(selectedDate, "yyyy-MM-dd",
                 CultureInfo.InvariantCulture, DateTimeStyles.None, out day)) return original;
-            string lower = key.ToLowerInvariant();
-            bool isEnd = lower.StartsWith("end") || lower.StartsWith("to");
-            DateTime value = isEnd ? day.AddDays(1).AddMilliseconds(-1) : day;
+            // Rocket expects startDate and endDate to be the same value: the
+            // selected day's midnight in Japan, expressed as Unix milliseconds.
+            DateTime value = DateTime.SpecifyKind(day.Date, DateTimeKind.Unspecified);
 
             if (original is Int32 || original is Int64 || original is Double || original is Decimal)
             {
+                TimeZoneInfo tokyo = TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+                DateTime utcValue = TimeZoneInfo.ConvertTimeToUtc(value, tokyo);
                 DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-                return Convert.ToInt64((value.ToUniversalTime() - epoch).TotalMilliseconds);
+                return Convert.ToInt64((utcValue - epoch).TotalMilliseconds);
             }
 
             string text = Convert.ToString(original);

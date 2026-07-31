@@ -10,9 +10,11 @@ $payloadFile = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-payload-0.1.0.zip
 $outputDir = Join-Path $projectDir 'dist'
 $outputExe = Join-Path $outputDir 'FoodDeliveryPrintingSystem-0.1.0.exe'
 
-if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll'))) {
+if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll')) -or
+    -not (Test-Path (Join-Path $vendorDir 'runtimes\win-x64\native\WebView2Loader.dll'))) {
     New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
     Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$packageVersion" -OutFile $packageFile
+    if (Test-Path -LiteralPath $vendorDir) { Remove-Item -LiteralPath $vendorDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $vendorDir | Out-Null
     tar -xf $packageFile -C $vendorDir
 }
