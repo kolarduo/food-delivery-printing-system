@@ -1,6 +1,6 @@
 # 外卖打印系统
 
-轻量 Windows 桌面程序，读取 Rocket Now Manager 的 Kawasaki 店订单。当前版本为 `0.2.0`。
+轻量 Windows 桌面程序，读取 Rocket Now Manager 的 Kawasaki 店订单。当前版本为 `0.1.0`。
 
 ## 技术方案
 
@@ -26,7 +26,7 @@
 .\build.ps1
 ```
 
-构建脚本会按需下载微软官方 WebView2 SDK，并在 `dist-lite\food-delivery-printing-system-0.2.0` 生成轻量发布包。
+构建脚本会按需下载微软官方 WebView2 SDK，并在 `dist-lite\food-delivery-printing-system-0.1.0` 生成轻量发布包。
 
 ## 数据安全
 
