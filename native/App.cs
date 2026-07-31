@@ -38,7 +38,6 @@ namespace FoodDeliveryPrintingSystem
         WebView2 rocket;
         bool refreshing;
         bool navigatingToOrders;
-        bool directQueryStarted;
         string selectedDate = "";
 
         public MainForm()
@@ -115,9 +114,12 @@ namespace FoodDeliveryPrintingSystem
             rocket = new WebView2();
             rocket.Dock = DockStyle.Fill;
             rocketForm.Controls.Add(rocket);
+            rocketForm.Show();
+            rocketForm.Activate();
             await rocket.EnsureCoreWebView2Async(environment);
             rocket.CoreWebView2.Settings.IsPasswordAutosaveEnabled = true;
             rocket.CoreWebView2.Settings.IsGeneralAutofillEnabled = true;
+            rocket.CoreWebView2.WebResourceResponseReceived += RocketResponseReceived;
             rocket.CoreWebView2.NavigationCompleted += RocketNavigationCompleted;
         }
 
@@ -239,10 +241,12 @@ namespace FoodDeliveryPrintingSystem
 
             refreshing = true;
             collectedOrders.Clear();
-            directQueryStarted = false;
             finishTimer.Stop();
             SendStatus("正在打开 Rocket Manager…", "info");
             await EnsureRocketAsync();
+            rocketForm.Show();
+            rocketForm.WindowState = FormWindowState.Normal;
+            rocketForm.Activate();
             navigatingToOrders = true;
             rocket.CoreWebView2.Navigate(OrdersUrl);
         }
@@ -283,11 +287,26 @@ namespace FoodDeliveryPrintingSystem
             {
                 navigatingToOrders = false;
                 SendStatus("已打开订单页面，正在等待订单数据…", "info");
-                if (refreshing && !directQueryStarted)
-                {
-                    directQueryStarted = true;
-                    QueryOrdersDirectlyAsync();
-                }
+            }
+        }
+
+        async void RocketResponseReceived(object sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
+        {
+            if (!refreshing || e.Request.Uri.IndexOf(OrderApiPart,
+                StringComparison.OrdinalIgnoreCase) < 0) return;
+            try
+            {
+                if (e.Response.StatusCode < 200 || e.Response.StatusCode >= 300) return;
+                Stream stream = await e.Response.GetContentAsync();
+                string body;
+                using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                    body = await reader.ReadToEndAsync();
+                ProcessOrderBody(body);
+            }
+            catch (Exception ex)
+            {
+                refreshing = false;
+                SendStatus("Rocket 页面响应读取失败：" + ex.Message, "warn");
             }
         }
 
@@ -382,7 +401,7 @@ namespace FoodDeliveryPrintingSystem
             if (rocketForm != null) rocketForm.Hide();
             Show();
             Activate();
-            SendStatus("已读取 Kawasaki 店 " + collectedOrders.Count + " 条订单", "ok");
+            SendStatus("已读取 " + collectedOrders.Count + " 条订单", "ok");
         }
 
         Dictionary<string, object> Normalize(Dictionary<string, object> order)
@@ -401,14 +420,19 @@ namespace FoodDeliveryPrintingSystem
         string ItemSummary(IEnumerable items)
         {
             if (items == null) return "";
-            List<string> parts = new List<string>();
+            string firstName = "";
+            int itemCount = 0;
             foreach (object value in items)
             {
                 Dictionary<string, object> item = value as Dictionary<string, object>;
                 if (item == null) continue;
-                parts.Add(ToText(Get(item, "name")) + " ×" + ToText(Get(item, "quantity")));
+                string name = ToText(Get(item, "name"));
+                if (String.IsNullOrEmpty(name)) continue;
+                if (itemCount == 0) firstName = name;
+                itemCount++;
             }
-            return String.Join("、", parts.ToArray());
+            if (itemCount <= 1) return firstName;
+            return firstName + "の他" + (itemCount - 1) + "点";
         }
 
         List<Dictionary<string, object>> DetailItems(IEnumerable items)

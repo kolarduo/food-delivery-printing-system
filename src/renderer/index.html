@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Rocket 订单管理</title><link rel="stylesheet" href="style.css"></head>
-<body><header><div><h1>Rocket 订单管理</h1><p id="status">点击刷新订单开始读取 Kawasaki 店订单</p></div><button id="refresh">刷新订单</button></header>
+<body><header><div><h1>Rocket 订单管理</h1><p id="status">点击刷新订单开始读取 Rocket 订单</p></div><button id="refresh">刷新订单</button></header>
 <main><section class="toolbar">
   <label>日期<input id="date" type="date"></label>
 </section>
 <section class="summary"><div><span>订单数</span><strong id="count">0</strong></div><div><span>最后读取</span><strong id="last">尚未读取</strong></div></section>
-<section class="tableWrap"><table><thead><tr><th>订单号</th><th>日期</th><th>状态</th><th>主要商品</th><th>金额</th><th></th></tr></thead><tbody id="rows"></tbody></table><div id="empty">暂无订单。点击右上角“刷新订单”开始读取。</div></section>
+<section class="tableWrap"><table><thead><tr><th>订单号</th><th>下单时间</th><th>状态</th><th>主要商品</th><th>金额</th><th></th></tr></thead><tbody id="rows"></tbody></table><div id="empty">暂无订单。点击右上角“刷新订单”开始读取。</div></section>
 </main><dialog id="details"><div class="dialogHead"><h2>商品详情</h2><button id="close">关闭</button></div><div id="detailList"></div></dialog><script src="renderer.js"></script></body></html>
