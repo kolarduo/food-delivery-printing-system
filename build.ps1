@@ -11,6 +11,7 @@ $outputDir = Join-Path $projectDir 'dist'
 $outputName = 'Rocket' + [char]0x5916 + [char]0x5356 + [char]0x6253 +
     [char]0x5370 + [char]0x5DE5 + [char]0x5177 + '_v0.2.4.exe'
 $outputExe = Join-Path $outputDir $outputName
+$appIcon = Join-Path $projectDir 'assets\app-icon.ico'
 
 if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll')) -or
     -not (Test-Path (Join-Path $vendorDir 'runtimes\win-x64\native\WebView2Loader.dll'))) {
@@ -32,6 +33,7 @@ $webViewLib = Join-Path $vendorDir 'lib\net462'
 $csc = Join-Path $framework 'csc.exe'
 
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 `
+    /win32icon:"$appIcon" `
     /out:"$(Join-Path $stageDir 'FoodDeliveryPrintingSystem.Core.exe')" `
     /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll `
@@ -47,6 +49,7 @@ Copy-Item (Join-Path $projectDir 'src\renderer\*') (Join-Path $stageDir 'ui') -R
 Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $payloadFile -Force
 
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 `
+    /win32icon:"$appIcon" `
     /out:"$outputExe" /resource:"$payloadFile,Payload.zip" `
     /reference:System.dll /reference:System.Core.dll /reference:System.Windows.Forms.dll `
     /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll `
