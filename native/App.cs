@@ -14,6 +14,8 @@ namespace FoodDeliveryPrintingSystem
 {
     static class Program
     {
+        public const string Version = "0.2.2";
+        public const string AppName = "Rocket外卖打印工具";
         [STAThread]
         static void Main()
         {
@@ -33,7 +35,6 @@ namespace FoodDeliveryPrintingSystem
         readonly Dictionary<string, Dictionary<string, object>> collectedOrders =
             new Dictionary<string, Dictionary<string, object>>();
         readonly HashSet<int> processedPages = new HashSet<int>();
-        readonly HashSet<string> knownOrderKeys = new HashSet<string>();
         readonly Timer finishTimer = new Timer();
         readonly Timer pageTimeoutTimer = new Timer();
         CoreWebView2Environment environment;
@@ -45,7 +46,6 @@ namespace FoodDeliveryPrintingSystem
         bool partialResult;
         bool directFetchActive;
         bool fastFetchTried;
-        bool reachedKnownOrder;
         string lastOrderQueryBody = "";
         string selectedDate = "";
         int scannedOrderCount;
@@ -59,12 +59,11 @@ namespace FoodDeliveryPrintingSystem
             public int LastPageNumber;
             public bool WasDuplicate;
             public bool HasOlderThanSelectedDate;
-            public bool HasKnownOrder;
         }
 
         public MainForm()
         {
-            Text = "Rocket外卖打印工具_v0.2.2";
+            Text = Program.AppName;
             Width = 1180;
             Height = 760;
             MinimumSize = new Size(900, 600);
@@ -90,6 +89,7 @@ namespace FoodDeliveryPrintingSystem
                 ui.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 ui.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 ui.CoreWebView2.WebMessageReceived += UiMessageReceived;
+                ui.CoreWebView2.NavigationCompleted += UiNavigationCompleted;
                 string uiFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ui");
                 ui.CoreWebView2.SetVirtualHostNameToFolderMapping(
                     "app.local", uiFolder, CoreWebView2HostResourceAccessKind.DenyCors);
@@ -97,9 +97,24 @@ namespace FoodDeliveryPrintingSystem
             }
             catch (Exception ex)
             {
-                MessageBox.Show("程序初始化失败：\n" + ex.Message, "Rocket外卖打印工具_v0.2.2",
+                MessageBox.Show("程序初始化失败：\n" + ex.Message, Program.AppName,
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        void UiNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            SendAppInfo();
+        }
+
+        void SendAppInfo()
+        {
+            if (ui.CoreWebView2 == null) return;
+            Dictionary<string, object> payload = new Dictionary<string, object>();
+            payload["type"] = "appInfo";
+            payload["version"] = Program.Version;
+            payload["developer"] = "Wang Chengtao";
+            ui.CoreWebView2.PostWebMessageAsJson(json.Serialize(payload));
         }
 
         async void UiMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -110,17 +125,6 @@ namespace FoodDeliveryPrintingSystem
                 if (message != null && Convert.ToString(message["type"]) == "refresh")
                 {
                     selectedDate = message.ContainsKey("date") ? Convert.ToString(message["date"]) : "";
-                    knownOrderKeys.Clear();
-                    IEnumerable known = message.ContainsKey("knownOrderKeys")
-                        ? message["knownOrderKeys"] as IEnumerable : null;
-                    if (known != null)
-                    {
-                        foreach (object value in known)
-                        {
-                            string key = ToText(value);
-                            if (!String.IsNullOrEmpty(key)) knownOrderKeys.Add(key);
-                        }
-                    }
                     await RefreshOrdersAsync();
                 }
             }
@@ -200,7 +204,6 @@ namespace FoodDeliveryPrintingSystem
             partialResult = false;
             directFetchActive = false;
             fastFetchTried = false;
-            reachedKnownOrder = false;
             lastOrderQueryBody = "";
             scannedOrderCount = 0;
             observedPageSize = 0;
@@ -313,13 +316,11 @@ namespace FoodDeliveryPrintingSystem
             bool reachedTotal = info.TotalElements > 0 &&
                 scannedOrderCount >= info.TotalElements;
             bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
-            bool reachedKnownOrderOnPage = info.HasKnownOrder;
             bool shortPage = observedPageSize > 0 &&
                 info.PageOrderCount < observedPageSize;
             bool reachedSafetyLimit = processedPages.Count >= MaximumPages;
             bool hasMore = info.PageOrderCount > 0 && !reachedReportedLastPage &&
-                !reachedTotal && !reachedSelectedDateFloor &&
-                !reachedKnownOrderOnPage && !shortPage && !reachedSafetyLimit;
+                !reachedTotal && !reachedSelectedDateFloor && !shortPage && !reachedSafetyLimit;
 
             if (!hasMore)
             {
@@ -331,11 +332,6 @@ namespace FoodDeliveryPrintingSystem
                 else if (reachedSelectedDateFloor)
                 {
                     SendStatus("已读到早于所选日期的订单，停止继续翻页。", "info");
-                }
-                else if (reachedKnownOrderOnPage)
-                {
-                    reachedKnownOrder = true;
-                    SendStatus("已读到本地已有订单，停止继续翻页。", "info");
                 }
                 FinishPaging();
                 return;
@@ -415,12 +411,6 @@ namespace FoodDeliveryPrintingSystem
 
                     string key = ToText(Get(order, "uniqueOrderId"));
                     if (String.IsNullOrEmpty(key)) key = ToText(Get(order, "orderId"));
-                    string abbrId = ToText(Get(order, "abbrOrderId"));
-                    if (knownOrderKeys.Contains(key) || knownOrderKeys.Contains(abbrId))
-                    {
-                        info.HasKnownOrder = true;
-                        break;
-                    }
 
                     Dictionary<string, object> normalized = Normalize(order);
                     if (String.IsNullOrEmpty(key)) key = ToText(Get(normalized, "id"));
@@ -484,14 +474,11 @@ namespace FoodDeliveryPrintingSystem
                     bool reachedTotal = info.TotalElements > 0 &&
                         scannedOrderCount >= info.TotalElements;
                     bool reachedSelectedDateFloor = info.HasOlderThanSelectedDate;
-                    bool reachedKnownOrderOnPage = info.HasKnownOrder;
                     bool shortPage = observedPageSize > 0 &&
                         info.PageOrderCount < observedPageSize;
                     if (info.PageOrderCount == 0 || reachedReportedLastPage ||
-                        reachedTotal || reachedSelectedDateFloor ||
-                        reachedKnownOrderOnPage || shortPage)
+                        reachedTotal || reachedSelectedDateFloor || shortPage)
                     {
-                        if (reachedKnownOrderOnPage) reachedKnownOrder = true;
                         return true;
                     }
                 }
@@ -633,8 +620,6 @@ namespace FoodDeliveryPrintingSystem
             Activate();
             if (partialResult)
                 SendStatus("读取未完成，请重试。", "warn");
-            else if (reachedKnownOrder)
-                SendStatus("订单读取完成，已合并本地记录。", "ok");
             else
                 SendStatus("订单读取完成。", "ok");
         }

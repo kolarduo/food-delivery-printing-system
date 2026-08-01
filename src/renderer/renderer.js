@@ -39,6 +39,12 @@ function linePrice(item) {
   return money(item.totalPrice) || money(item.unitPrice);
 }
 
+function isCancelled(order) {
+  const status = String(order.status || '').toLowerCase();
+  return status.includes('cancel') || status.includes('キャンセル') ||
+    status.includes('取消') || status.includes('キャンセル');
+}
+
 function dateKey(value) {
   const d = new Date(Number(value) || value);
   if (Number.isNaN(d.valueOf())) return String(value).slice(0, 10);
@@ -204,6 +210,7 @@ function render() {
 
   for (const order of filtered) {
     const row = document.createElement('tr');
+    if (isCancelled(order)) row.className = 'cancelledOrder';
     const amount = money(order.amount) || '—';
     const values = [
       order.id || '—', localDate(order.date) || '—', order.status || '—',
@@ -322,14 +329,9 @@ function printCurrentOrder() {
 $('refresh').onclick = () => {
   $('status').textContent = '正在打开 Rocket Manager…';
   const selectedDate = $('date').value;
-  const knownOrderKeys = loadCachedOrders()
-    .filter((order) => !selectedDate || dateKey(order.date) === selectedDate)
-    .map(orderKey)
-    .filter(Boolean);
   window.chrome.webview.postMessage({
     type: 'refresh',
     date: selectedDate,
-    knownOrderKeys,
   });
 };
 $('date').onchange = render;
@@ -364,6 +366,9 @@ window.chrome.webview.addEventListener('message', (event) => {
   }
   if (message.type === 'loading') {
     setLoading(Boolean(message.loading));
+  }
+  if (message.type === 'appInfo') {
+    $('appMeta').textContent = `Version ${message.version || ''}  |  Developer: ${message.developer || ''}`;
   }
 });
 
