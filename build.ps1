@@ -5,11 +5,11 @@ $packageVersion = '1.0.4078.44'
 $cacheRoot = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-build-cache'
 $vendorDir = Join-Path $cacheRoot 'webview2'
 $packageFile = Join-Path $cacheRoot "Microsoft.Web.WebView2.$packageVersion.nupkg"
-$stageDir = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-stage-0.2.2'
-$payloadFile = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-payload-0.2.2.zip'
+$stageDir = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-stage-0.2.4'
+$payloadFile = Join-Path $env:TEMP 'FoodDeliveryPrintingSystem-payload-0.2.4.zip'
 $outputDir = Join-Path $projectDir 'dist'
 $outputName = 'Rocket' + [char]0x5916 + [char]0x5356 + [char]0x6253 +
-    [char]0x5370 + [char]0x5DE5 + [char]0x5177 + '_v0.2.2.exe'
+    [char]0x5370 + [char]0x5DE5 + [char]0x5177 + '_v0.2.4.exe'
 $outputExe = Join-Path $outputDir $outputName
 
 if (-not (Test-Path (Join-Path $vendorDir 'lib\net462\Microsoft.Web.WebView2.Core.dll')) -or

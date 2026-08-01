@@ -286,6 +286,7 @@ function preparePrintLabel(order) {
 
   const meta = document.createElement('div');
   meta.className = 'labelMeta';
+  appendText(meta, 'div', 'labelBrand', 'Rocket Now');
   appendText(meta, 'div', 'labelMetaLine', order.id ? `注文番号 ${order.id}` : '注文番号');
   appendText(meta, 'div', 'labelMetaLine', `注文時間 ${localDate(order.date)}`);
   label.appendChild(meta);
@@ -303,7 +304,8 @@ function preparePrintLabel(order) {
       const optionPrice = linePrice(option);
       const optionLine = document.createElement('div');
       optionLine.className = 'labelOptionLine';
-      appendText(optionLine, 'span', 'labelOptionName', `${option.name || ''} ×${option.quantity || 1}`);
+      appendText(optionLine, 'span', 'labelOptionName', option.name || '');
+      appendText(optionLine, 'span', 'labelOptionQuantity', `\u00D7${option.quantity || 1}`);
       if (optionPrice) appendText(optionLine, 'span', 'labelOptionPrice', optionPrice);
       block.appendChild(optionLine);
     }
@@ -316,6 +318,7 @@ function preparePrintLabel(order) {
 
   const total = money(order.amount);
   if (total) appendText(label, 'div', 'labelTotal', `合計 ${total}`);
+  appendText(label, 'div', 'labelSpacer', '');
 
   area.appendChild(label);
 }

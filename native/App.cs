@@ -14,7 +14,7 @@ namespace FoodDeliveryPrintingSystem
 {
     static class Program
     {
-        public const string Version = "0.2.2";
+        public const string Version = "0.2.4";
         public const string AppName = "Rocket外卖打印工具";
         [STAThread]
         static void Main()
@@ -46,6 +46,7 @@ namespace FoodDeliveryPrintingSystem
         bool partialResult;
         bool directFetchActive;
         bool fastFetchTried;
+        bool searchTriggeredForRefresh;
         string lastOrderQueryBody = "";
         string selectedDate = "";
         int scannedOrderCount;
@@ -179,6 +180,8 @@ namespace FoodDeliveryPrintingSystem
                 e.Request.Content == null) return;
             try
             {
+                e.Request.Headers.SetHeader("Cache-Control", "no-cache");
+                e.Request.Headers.SetHeader("Pragma", "no-cache");
                 using (StreamReader reader = new StreamReader(
                     e.Request.Content, Encoding.UTF8, true, 1024, true))
                     lastOrderQueryBody = reader.ReadToEnd();
@@ -204,6 +207,7 @@ namespace FoodDeliveryPrintingSystem
             partialResult = false;
             directFetchActive = false;
             fastFetchTried = false;
+            searchTriggeredForRefresh = false;
             lastOrderQueryBody = "";
             scannedOrderCount = 0;
             observedPageSize = 0;
@@ -216,7 +220,8 @@ namespace FoodDeliveryPrintingSystem
             rocketForm.WindowState = FormWindowState.Normal;
             rocketForm.Activate();
             navigatingToOrders = true;
-            rocket.CoreWebView2.Navigate(OrdersUrl);
+            rocket.CoreWebView2.Navigate(OrdersUrl + "?refresh=" +
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             pageTimeoutTimer.Start();
         }
 
@@ -263,18 +268,50 @@ namespace FoodDeliveryPrintingSystem
                 url.IndexOf("/merchant/management/orders", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 navigatingToOrders = true;
-                rocket.CoreWebView2.Navigate(OrdersUrl);
+                rocket.CoreWebView2.Navigate(OrdersUrl + "?refresh=" +
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             }
             else
             {
                 navigatingToOrders = false;
                 if (refreshing) ShowQueryInMainWindow();
+                if (refreshing)
+                {
+                    Task searchTask = TriggerRocketSearchAsync();
+                }
                 SendStatus("已打开订单页面，正在等待订单数据…", "info");
                 if (refreshing && processedPages.Count == 0)
                 {
                     pageTimeoutTimer.Stop();
                     pageTimeoutTimer.Start();
                 }
+            }
+        }
+
+        async Task TriggerRocketSearchAsync()
+        {
+            if (searchTriggeredForRefresh) return;
+            searchTriggeredForRefresh = true;
+            await Task.Delay(1000);
+            if (!refreshing || pagingFinished || processedPages.Count > 0 ||
+                rocket == null || rocket.CoreWebView2 == null) return;
+
+            try
+            {
+                await rocket.CoreWebView2.ExecuteScriptAsync(
+                    "(()=>{" +
+                    "const usable=e=>{if(!e)return false;const s=getComputedStyle(e);" +
+                    "return !e.disabled&&e.getAttribute('aria-disabled')!=='true'&&" +
+                    "s.display!=='none'&&s.visibility!=='hidden'&&e.offsetWidth>0&&e.offsetHeight>0;};" +
+                    "const buttons=[...document.querySelectorAll('button,[role=button]')].filter(usable);" +
+                    "let target=buttons.find(e=>/search|検索|查|搜尋/i.test((e.getAttribute('aria-label')||'')+' '+(e.title||'')+' '+(e.textContent||'')));" +
+                    "if(!target){target=buttons.find(e=>{const r=e.getBoundingClientRect();" +
+                    "return r.top>180&&r.top<380&&r.left>300&&r.left<900&&r.width>=36&&r.width<=90&&r.height>=30&&r.height<=70;});}" +
+                    "if(!target)return 0;target.scrollIntoView({block:'center'});target.click();return 1;" +
+                    "})()");
+            }
+            catch
+            {
             }
         }
 
@@ -441,8 +478,9 @@ namespace FoodDeliveryPrintingSystem
                     if (String.IsNullOrEmpty(requestBody)) return false;
 
                     string script = "(async()=>{try{const r=await fetch('" + OrderApiPart +
-                        "',{method:'POST',credentials:'include',headers:{" +
-                        "'accept':'application/json','content-type':'application/json;charset=UTF-8'}," +
+                        "',{method:'POST',credentials:'include',cache:'no-store',headers:{" +
+                        "'accept':'application/json','content-type':'application/json;charset=UTF-8'," +
+                        "'cache-control':'no-cache','pragma':'no-cache'}," +
                         "body:" + json.Serialize(requestBody) + "});" +
                         "const text=await r.text();" +
                         "return JSON.stringify({status:r.status,body:text});" +
